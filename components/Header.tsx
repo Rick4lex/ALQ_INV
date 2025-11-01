@@ -1,0 +1,59 @@
+
+import React from 'react';
+import { ViewMode } from '../types';
+import { LayoutGrid, List, Plus, Undo2, Sparkles, Tag } from 'lucide-react';
+
+interface HeaderProps {
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+  onAddProduct: () => void;
+  onReset: () => void;
+  onAddCategory: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ viewMode, onViewModeChange, onAddProduct, onReset, onAddCategory }) => {
+  return (
+    <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
+      <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+           <Sparkles className="h-8 w-8 text-purple-400" />
+           <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">Alquima Mizu</h1>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onViewModeChange('grid')}
+            className={`p-2 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-brand-purple text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}
+            aria-label="Vista de cuadrícula"
+          >
+            <LayoutGrid size={20} />
+          </button>
+          <button
+            onClick={() => onViewModeChange('list')}
+            className={`p-2 rounded-md transition-colors ${viewMode === 'list' ? 'bg-brand-purple text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}
+            aria-label="Vista de lista"
+          >
+            <List size={20} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+           <button onClick={onAddCategory} className="flex items-center gap-2 bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
+            <Tag size={18} />
+            <span className="hidden sm:inline">Nueva Cat.</span>
+          </button>
+           <button onClick={onAddProduct} className="flex items-center gap-2 bg-brand-purple hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
+            <Plus size={18} />
+            <span className="hidden sm:inline">Añadir</span>
+          </button>
+          <button onClick={onReset} className="flex items-center gap-2 bg-brand-red hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
+            <Undo2 size={18} />
+            <span className="hidden sm:inline">Reiniciar</span>
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+};
+
+export default Header;

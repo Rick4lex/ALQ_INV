@@ -1,0 +1,5 @@
+{
+  "name": "Alquima Mizu - Gestor de Catálogo",
+  "description": "Una herramienta web de productividad diseñada para gestionar inventarios y catálogos de productos de manera visual e intuitiva. Permite administrar productos, filtrarlos, editarlos y exportar la información en múltiples formatos.",
+  "requestFramePermissions": []
+}
