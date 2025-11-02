@@ -120,7 +120,7 @@ const JsonLoader: React.FC<JsonLoaderProps> = ({ onJsonLoad }) => {
           </button>
         </div>
         <div className="mt-4 text-center text-xs text-gray-400 space-y-1">
-            <p><span className="font-semibold text-purple-300">Cargar Productos:</span> El JSON de productos debe seguir la estructura: `{"placeholderImages": [...]}`.</p>
+            <p><span className="font-semibold text-purple-300">Cargar Productos:</span> El JSON de productos debe seguir la estructura: <code>{`{"placeholderImages": [...]}`}</code>.</p>
             <p><span className="font-semibold text-gray-300">Restaurar Backup:</span> Carga un archivo de backup completo generado por esta aplicación.</p>
         </div>
       </div>
