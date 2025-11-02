@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Product } from '../types';
 import { Sparkles } from 'lucide-react';
@@ -18,7 +17,10 @@ const exampleJson = `{
       "imageUrls": ["https://res.cloudinary.com/dyeppbrfl/image/upload/v1761018574/1333694e-f106-41ed-8eb2-8c551af1fd40.png"],
       "imageHint": "custom miniatures",
       "price": "12.000 und",
-      "available": true
+      "stock": 5,
+      "variants": [
+        { "id": "minifiguras-1-default", "name": "Único", "price": "12.000 und", "stock": 5, "sku": "KAIJU-KIKORU" }
+      ]
     }
   ]
 }`;
@@ -35,8 +37,27 @@ const JsonLoader: React.FC<JsonLoaderProps> = ({ onJsonLoad }) => {
     try {
       const parsed = JSON.parse(jsonInput);
       if (parsed && Array.isArray(parsed.placeholderImages)) {
-        const productsWithId = parsed.placeholderImages.filter(p => p && p.id);
-        onJsonLoad(productsWithId);
+        const products: Product[] = parsed.placeholderImages
+          .filter((p: any) => p && p.id)
+          .map((p: any) => {
+            // Handle backwards compatibility for old formats
+            if (!p.variants) {
+              const stock = p.hasOwnProperty('stock') ? p.stock : (p.available ? 1 : 0);
+              return {
+                ...p,
+                variants: [{
+                  id: `${p.id}-default`,
+                  name: 'Único',
+                  stock: stock ?? 0,
+                  price: p.price ?? '',
+                  sku: p.sku ?? '',
+                }],
+              };
+            }
+            return p;
+          });
+
+        onJsonLoad(products);
         setError('');
       } else {
         setError('El formato del JSON es inválido. Asegúrate de que tenga una clave "placeholderImages" con un array de productos.');

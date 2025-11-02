@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
-import { Product, UserPreferences, ModalState } from './types';
+import { Product, UserPreferences, ModalState, Movements, Movement, Variant } from './types';
 import { LOCAL_STORAGE_KEYS, INITIAL_CATEGORIES } from './constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import JsonLoader from './components/JsonLoader';
@@ -13,6 +12,7 @@ import ConfirmDeleteModal from './components/ConfirmDeleteModal';
 import ConfirmIgnoreModal from './components/ConfirmIgnoreModal';
 import ExportModal from './components/ExportModal';
 import AddCategoryModal from './components/AddCategoryModal';
+import MovementHistoryModal from './components/MovementHistoryModal';
 import { X } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -25,6 +25,7 @@ const App: React.FC = () => {
   });
   const [ignoredProductIds, setIgnoredProductIds] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, ['banner']);
   const [allCategories, setAllCategories] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
+  const [movements, setMovements] = useLocalStorage<Movements>(LOCAL_STORAGE_KEYS.MOVEMENTS, {});
   const [modal, setModal] = useState<ModalState | null>(null);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
@@ -36,7 +37,7 @@ const App: React.FC = () => {
       }
       const matchesSearch = (product.title || '').toLowerCase().includes(preferences.searchTerm.toLowerCase());
       const matchesCategory = preferences.selectedCategory === 'Todas' || product.category === preferences.selectedCategory;
-      const matchesAvailability = !preferences.showAvailableOnly || product.available;
+      const matchesAvailability = !preferences.showAvailableOnly || product.variants.some(v => v.stock > 0);
       return matchesSearch && matchesCategory && matchesAvailability;
     });
   }, [products, preferences, ignoredProductIds]);
@@ -65,32 +66,97 @@ const App: React.FC = () => {
       });
       setIgnoredProductIds(['banner']);
       setAllCategories(INITIAL_CATEGORIES);
+      setMovements({});
     }
-  }, [setProducts, setPreferences, setIgnoredProductIds, setAllCategories]);
+  }, [setProducts, setPreferences, setIgnoredProductIds, setAllCategories, setMovements]);
 
   const updatePreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
     setPreferences(prev => ({ ...prev, [key]: value }));
   }, [setPreferences]);
 
+  const addMovement = useCallback((variantId: string, movementData: Omit<Movement, 'id' | 'variantId'>) => {
+    setMovements(prev => {
+      const newMovement: Movement = {
+        ...movementData,
+        id: `mov-${Date.now()}`,
+        variantId,
+      };
+      const variantMovements = prev[variantId] || [];
+      return {
+        ...prev,
+        [variantId]: [...variantMovements, newMovement],
+      };
+    });
+  }, [setMovements]);
+
   const handleProductSave = useCallback((productToSave: Product) => {
     setProducts(prevProducts => {
-      const existing = prevProducts?.find(p => p.id === productToSave.id);
-      if (existing) {
+      const existingProduct = prevProducts?.find(p => p.id === productToSave.id);
+      if (existingProduct) {
+        // Editing product
+        productToSave.variants.forEach(variant => {
+          const existingVariant = existingProduct.variants.find(v => v.id === variant.id);
+          if (!existingVariant) { // New variant added
+            addMovement(variant.id, {
+              timestamp: Date.now(),
+              type: 'Inicial',
+              change: variant.stock,
+              newStock: variant.stock,
+              notes: 'Variante nueva añadida'
+            });
+          } else if (existingVariant.stock !== variant.stock) { // Stock adjusted in form
+            addMovement(variant.id, {
+              timestamp: Date.now(),
+              type: 'Ajuste',
+              change: variant.stock - existingVariant.stock,
+              newStock: variant.stock,
+              notes: 'Ajuste desde formulario de producto'
+            });
+          }
+        });
         return prevProducts?.map(p => p.id === productToSave.id ? productToSave : p) || [];
+      } else {
+        // New product
+        productToSave.variants.forEach(variant => {
+          addMovement(variant.id, {
+            timestamp: Date.now(),
+            type: 'Inicial',
+            change: variant.stock,
+            newStock: variant.stock,
+            notes: 'Stock inicial del producto'
+          });
+        });
+        return [...(prevProducts || []), productToSave];
       }
-      return [...(prevProducts || []), productToSave];
     });
     setModal(null);
-  }, [setProducts]);
+  }, [setProducts, addMovement]);
   
   const handleProductDelete = useCallback((productId: string) => {
     setProducts(prev => prev?.filter(p => p.id !== productId) || []);
     setModal(null);
   }, [setProducts]);
 
-  const handleToggleAvailability = useCallback((productId: string, available: boolean) => {
-    setProducts(prev => prev?.map(p => p.id === productId ? { ...p, available } : p) || []);
-  }, [setProducts]);
+  const handleSaveMovement = useCallback((productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
+    let newStockValue = 0;
+    setProducts(prev => {
+      if (!prev) return null;
+      return prev.map(p => {
+        if (p.id === productId) {
+          const updatedVariants = p.variants.map(v => {
+            if (v.id === variantId) {
+              newStockValue = Math.max(0, v.stock + movementData.change);
+              return { ...v, stock: newStockValue };
+            }
+            return v;
+          });
+          return { ...p, variants: updatedVariants };
+        }
+        return p;
+      });
+    });
+    addMovement(variantId, { ...movementData, newStock: newStockValue });
+  }, [setProducts, addMovement]);
 
   const handleIgnoreProduct = useCallback((productId: string) => {
     setIgnoredProductIds(prev => {
@@ -138,9 +204,9 @@ const App: React.FC = () => {
             viewMode={preferences.viewMode}
             onEdit={(product) => setModal({ type: 'edit', product })}
             onDelete={(product) => setModal({ type: 'delete', product })}
-            onToggleAvailability={handleToggleAvailability}
             onImageClick={setFullscreenImage}
             onIgnore={(product) => setModal({ type: 'ignore', product })}
+            onMovement={(product) => setModal({ type: 'movements', product })}
           />
         </main>
       </div>
@@ -194,6 +260,15 @@ const App: React.FC = () => {
           onClose={() => setModal(null)}
           onSave={handleCategorySave}
           existingCategories={allCategories}
+        />
+      )}
+      {modal?.type === 'movements' && (
+        <MovementHistoryModal
+          isOpen={true}
+          onClose={() => setModal(null)}
+          product={modal.product}
+          movements={movements}
+          onSaveMovement={handleSaveMovement}
         />
       )}
       {fullscreenImage && (

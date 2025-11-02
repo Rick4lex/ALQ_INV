@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Product } from '../types';
+import { Product, Variant } from '../types';
 import Modal from './Modal';
 import { Copy, Check, Printer, Filter } from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
@@ -18,6 +18,33 @@ const titles = {
   catalog: 'Vista Previa del Catálogo',
 };
 
+// Helper function to calculate a display price string for a product
+const getPriceDisplay = (product: Product): string => {
+    const availablePricedVariants = product.variants.filter(v => v.stock > 0 && v.price);
+
+    if (availablePricedVariants.length === 0) {
+        return "Consultar precio";
+    }
+
+    const prices = availablePricedVariants.map(v => parseFloat(v.price!.replace(/[^0-9.-]+/g, "")));
+
+    if (prices.some(isNaN)) {
+        return availablePricedVariants[0]?.price || "Consultar precio";
+    }
+
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const firstPriceString = availablePricedVariants[0].price!;
+
+    if (minPrice === maxPrice) {
+        return firstPriceString;
+    } else {
+        const currency = firstPriceString.replace(/[0-9.,\s]/g, '');
+        return `${minPrice.toLocaleString('es-CO')} - ${maxPrice.toLocaleString('es-CO')} ${currency}`;
+    }
+};
+
+
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, products, ignoredProductIds }) => {
   const [selectedHint, setSelectedHint] = useState<string>('Todas');
   const [content, setContent] = useState('');
@@ -25,7 +52,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      const isAvailable = p.available && !ignoredProductIds.includes(p.id);
+      const isAvailable = p.variants.some(v => v.stock > 0) && !ignoredProductIds.includes(p.id);
       if (!isAvailable) return false;
       const matchesHint = selectedHint === 'Todas' || p.imageHint === selectedHint;
       return matchesHint;
@@ -47,15 +74,58 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
     if (!isOpen) return;
 
     if (format === 'json') {
-      const dataToExport = { placeholderImages: products };
+      const productsToExport = products.map(p => {
+        // Handle special cases like 'banner' that don't have variants/price/availability
+        if (p.id === 'banner') {
+            const { variants, ...bannerData } = p;
+            return bannerData;
+        }
+
+        const { variants, ...restOfProduct } = p;
+        const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
+        
+        // Find the first variant that has a price to use as the representative price
+        const representativeVariant = variants.find(v => v.price) || (variants.length > 0 ? variants[0] : null);
+
+        const finalProduct: any = {
+            ...restOfProduct,
+            available: totalStock > 0,
+        };
+
+        // Only add the price property if a representative variant with a price was found
+        if (representativeVariant && representativeVariant.price) {
+            finalProduct.price = representativeVariant.price;
+        }
+        
+        return finalProduct;
+      });
+
+      const dataToExport = { 
+        placeholderImages: productsToExport
+      };
       setContent(JSON.stringify(dataToExport, null, 2));
+
     } else if (format === 'markdown') {
-      const markdown = filteredProducts
-        .map(p => `- ${p.title}${p.price ? ` - ${p.price}` : ''}`)
-        .join('\n');
-      setContent(markdown);
+      const groupedByHint = filteredProducts.reduce((acc, product) => {
+          const hint = product.imageHint || 'Otros';
+          if (!acc[hint]) {
+              acc[hint] = [];
+          }
+          acc[hint].push(product);
+          return acc;
+      }, {} as Record<string, Product[]>);
+
+      const markdown = Object.entries(groupedByHint).map(([hint, productsInGroup]) => {
+          const header = `\n## ${hint}\n`;
+          const productLines = productsInGroup.map(p => {
+              const priceDisplay = getPriceDisplay(p);
+              return `- ${p.title}: ${priceDisplay}`;
+          }).join('\n');
+          return header + productLines;
+      }).join('\n');
+      setContent(markdown.trim());
     }
-  }, [isOpen, format, products, filteredProducts]);
+  }, [isOpen, format, products, filteredProducts, ignoredProductIds]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(content).then(() => {

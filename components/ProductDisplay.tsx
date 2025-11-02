@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Product, ViewMode } from '../types';
 import ProductCard from './ProductCard';
@@ -8,12 +7,12 @@ interface ProductDisplayProps {
   viewMode: ViewMode;
   onEdit: (product: Product) => void;
   onDelete: (product: Product) => void;
-  onToggleAvailability: (productId: string, available: boolean) => void;
   onImageClick: (imageUrl: string) => void;
   onIgnore: (product: Product) => void;
+  onMovement: (product: Product) => void;
 }
 
-const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onEdit, onDelete, onToggleAvailability, onImageClick, onIgnore }) => {
+const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onEdit, onDelete, onImageClick, onIgnore, onMovement }) => {
   if (products.length === 0) {
     return <div className="text-center py-10 text-gray-400">No se encontraron productos que coincidan con los filtros.</div>;
   }
@@ -31,9 +30,9 @@ const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onE
           viewMode={viewMode}
           onEdit={onEdit}
           onDelete={onDelete}
-          onToggleAvailability={onToggleAvailability}
           onImageClick={onImageClick}
           onIgnore={onIgnore}
+          onMovement={onMovement}
         />
       ))}
     </div>

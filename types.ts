@@ -1,3 +1,20 @@
+export interface Movement {
+  id: string;
+  variantId: string;
+  timestamp: number;
+  type: 'Venta' | 'Stock' | 'Ajuste' | 'Inicial';
+  change: number;
+  newStock: number;
+  notes?: string;
+}
+
+export interface Variant {
+  id: string;
+  name: string;
+  sku?: string;
+  price?: string;
+  stock: number;
+}
 
 export interface Product {
   id: string;
@@ -7,9 +24,10 @@ export interface Product {
   details: string;
   imageUrls: string[];
   imageHint: string;
-  price?: string;
-  available: boolean;
+  variants: Variant[];
 }
+
+export type Movements = Record<string, Movement[]>; // Keyed by variantId
 
 export type ViewMode = 'grid' | 'list';
 
@@ -26,4 +44,5 @@ export type ModalState =
   | { type: 'delete'; product: Product }
   | { type: 'ignore'; product: Product }
   | { type: 'export'; format: 'json' | 'markdown' | 'catalog' }
-  | { type: 'add-category' };
+  | { type: 'add-category' }
+  | { type: 'movements'; product: Product };
