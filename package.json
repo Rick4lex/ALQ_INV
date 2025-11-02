@@ -21,5 +21,6 @@
     "gh-pages": "^6.3.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
-  }
+  },
+  "homepage": "https://rick4lex.github.io/ALQ_INV/"
 }
