@@ -174,6 +174,27 @@ const App: React.FC = () => {
     setModal(null);
   }, [allCategories, setAllCategories]);
 
+  const handleBackupDownload = useCallback(() => {
+    const backupData = {
+      products,
+      preferences,
+      ignoredProductIds,
+      categories: allCategories,
+      movements,
+    };
+    const jsonString = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `alkima-mizu-backup-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [products, preferences, ignoredProductIds, allCategories, movements]);
+
   if (products === null) {
     return <JsonLoader onJsonLoad={handleJsonLoad} />;
   }
@@ -210,7 +231,7 @@ const App: React.FC = () => {
           />
         </main>
       </div>
-      <Footer onExport={(format) => setModal({ type: 'export', format })}/>
+      <Footer onExport={(format) => setModal({ type: 'export', format })} onBackup={handleBackupDownload}/>
 
       {modal?.type === 'add' && (
         <ProductFormModal
