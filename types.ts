@@ -23,7 +23,7 @@ export interface Product {
   description: string;
   details: string;
   imageUrls: string[];
-  imageHint: string;
+  imageHint: string[];
   variants: Variant[];
 }
 

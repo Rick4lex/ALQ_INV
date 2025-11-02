@@ -29,6 +29,6 @@ export const EMPTY_PRODUCT: Omit<Product, 'id'> = {
   description: '',
   details: '',
   imageUrls: [''],
-  imageHint: '',
+  imageHint: [],
   variants: [{ ...EMPTY_VARIANT, id: `new-variant-${Date.now()}` }],
 };

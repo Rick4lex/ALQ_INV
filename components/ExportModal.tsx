@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Product, Variant } from '../types';
 import Modal from './Modal';
-import { Copy, Check, Printer, Filter } from 'lucide-react';
+import { Copy, Check, Printer, Filter, ChevronDown } from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
 
 interface ExportModalProps {
@@ -47,26 +47,28 @@ const getPriceDisplay = (product: Product): string => {
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, products, ignoredProductIds }) => {
   const [selectedHint, setSelectedHint] = useState<string>('Todas');
+  const [omittedHints, setOmittedHints] = useState<string[]>([]);
   const [content, setContent] = useState('');
   const [copied, setCopied] = useState(false);
+
+  const uniqueHints = useMemo(() => {
+    const hints = new Set(products.flatMap(p => p.imageHint || []).filter(Boolean));
+    return ['Todas', ...Array.from(hints)];
+  }, [products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const isAvailable = p.variants.some(v => v.stock > 0) && !ignoredProductIds.includes(p.id);
       if (!isAvailable) return false;
-      const matchesHint = selectedHint === 'Todas' || p.imageHint === selectedHint;
+      const matchesHint = selectedHint === 'Todas' || (p.imageHint && p.imageHint.includes(selectedHint));
       return matchesHint;
     });
   }, [products, ignoredProductIds, selectedHint]);
 
-  const uniqueHints = useMemo(() => {
-    const hints = new Set(products.map(p => p.imageHint).filter(Boolean));
-    return ['Todas', ...Array.from(hints)];
-  }, [products]);
-
   useEffect(() => {
     if (isOpen) {
       setSelectedHint('Todas');
+      setOmittedHints([]);
     }
   }, [isOpen, format]);
 
@@ -106,26 +108,40 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
       setContent(JSON.stringify(dataToExport, null, 2));
 
     } else if (format === 'markdown') {
-      const groupedByHint = filteredProducts.reduce((acc, product) => {
-          const hint = product.imageHint || 'Otros';
-          if (!acc[hint]) {
-              acc[hint] = [];
-          }
-          acc[hint].push(product);
-          return acc;
-      }, {} as Record<string, Product[]>);
+        let markdown = '';
+        const groupedByHint = filteredProducts.reduce((acc, product) => {
+            const hints = product.imageHint && product.imageHint.length > 0 ? product.imageHint : ['Otros'];
+            hints.forEach(hint => {
+                if (!acc[hint]) {
+                    acc[hint] = [];
+                }
+                acc[hint].push(product);
+            });
+            return acc;
+        }, {} as Record<string, Product[]>);
 
-      const markdown = Object.entries(groupedByHint).map(([hint, productsInGroup]) => {
-          const header = `\n## ${hint}\n`;
-          const productLines = productsInGroup.map(p => {
-              const priceDisplay = getPriceDisplay(p);
-              return `- ${p.title}: ${priceDisplay}`;
-          }).join('\n');
-          return header + productLines;
-      }).join('\n');
-      setContent(markdown.trim());
+        if (selectedHint !== 'Todas') {
+            const header = `*${selectedHint}*\n`;
+            const productLines = (groupedByHint[selectedHint] || []).map(p => {
+                const priceDisplay = getPriceDisplay(p);
+                return `- ${p.title}: ${priceDisplay}`;
+            }).join('\n');
+            markdown = header + productLines;
+        } else {
+            markdown = Object.entries(groupedByHint)
+                .filter(([hint]) => !omittedHints.includes(hint))
+                .map(([hint, productsInGroup]) => {
+                    const header = `\n*${hint}*\n`;
+                    const productLines = productsInGroup.map(p => {
+                        const priceDisplay = getPriceDisplay(p);
+                        return `- ${p.title}: ${priceDisplay}`;
+                    }).join('\n');
+                    return header + productLines;
+                }).join('\n');
+        }
+        setContent(markdown.trim());
     }
-  }, [isOpen, format, products, filteredProducts, ignoredProductIds]);
+  }, [isOpen, format, products, filteredProducts, ignoredProductIds, selectedHint, omittedHints]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(content).then(() => {
@@ -136,6 +152,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleOmitHintToggle = (hint: string) => {
+    setOmittedHints(prev => 
+      prev.includes(hint) ? prev.filter(h => h !== hint) : [...prev, hint]
+    );
   };
   
   const showHintFilter = (format === 'markdown' || format === 'catalog') && uniqueHints.length > 1;
@@ -161,13 +183,37 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
         </div>
       )}
 
+      {format === 'markdown' && selectedHint === 'Todas' && uniqueHints.length > 2 && (
+         <details className="no-print mb-4 text-sm">
+            <summary className="cursor-pointer text-gray-400 hover:text-white flex items-center gap-1">
+                <ChevronDown size={16} className="transition-transform transform details-open:rotate-180" />
+                Omitir Series del Markdown
+            </summary>
+            <div className="mt-2 p-3 bg-gray-700/50 rounded-lg border border-gray-600 max-h-32 overflow-y-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {uniqueHints.filter(h => h !== 'Todas').map(hint => (
+                  <label key={hint} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={omittedHints.includes(hint)}
+                      onChange={() => handleOmitHintToggle(hint)}
+                      className="form-checkbox h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600"
+                    />
+                    {hint}
+                  </label>
+                ))}
+              </div>
+            </div>
+         </details>
+      )}
+
       {format === 'catalog' ? (
         <div>
           <button onClick={handlePrint} className="no-print mb-4 flex items-center justify-center gap-2 w-full bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
             <Printer size={18} />
             <span>Imprimir / Guardar como PDF</span>
           </button>
-          <div className="bg-white text-black p-4 rounded-md">
+          <div id="catalog-to-print" className="bg-white text-black p-4 rounded-md">
             <CatalogPreview products={filteredProducts} />
           </div>
         </div>

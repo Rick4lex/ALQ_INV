@@ -15,7 +15,7 @@ const exampleJson = `{
       "description": "Preview for Minifiguras 1",
       "details": "Bloque De Construcción de 4,5 cm. Plastico ABS",
       "imageUrls": ["https://res.cloudinary.com/dyeppbrfl/image/upload/v1761018574/1333694e-f106-41ed-8eb2-8c551af1fd40.png"],
-      "imageHint": "custom miniatures",
+      "imageHint": ["Kaiju No. 8"],
       "price": "12.000 und",
       "stock": 5,
       "variants": [
@@ -40,21 +40,27 @@ const JsonLoader: React.FC<JsonLoaderProps> = ({ onJsonLoad }) => {
         const products: Product[] = parsed.placeholderImages
           .filter((p: any) => p && p.id)
           .map((p: any) => {
-            // Handle backwards compatibility for old formats
-            if (!p.variants) {
-              const stock = p.hasOwnProperty('stock') ? p.stock : (p.available ? 1 : 0);
-              return {
-                ...p,
-                variants: [{
-                  id: `${p.id}-default`,
-                  name: 'Único',
-                  stock: stock ?? 0,
-                  price: p.price ?? '',
-                  sku: p.sku ?? '',
-                }],
-              };
+            let productData = { ...p };
+
+            // Migration for imageHint: ensure it's always an array
+            if (productData.imageHint && typeof productData.imageHint === 'string') {
+              productData.imageHint = [productData.imageHint];
+            } else if (!Array.isArray(productData.imageHint)) {
+              productData.imageHint = [];
             }
-            return p;
+            
+            // Handle backwards compatibility for old variant formats
+            if (!productData.variants) {
+              const stock = productData.hasOwnProperty('stock') ? productData.stock : (productData.available ? 1 : 0);
+              productData.variants = [{
+                id: `${productData.id}-default`,
+                name: 'Único',
+                stock: stock ?? 0,
+                price: productData.price ?? '',
+                sku: productData.sku ?? '',
+              }];
+            }
+            return productData;
           });
 
         onJsonLoad(products);

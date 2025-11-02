@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Product, Variant } from '../types';
 import Modal from './Modal';
 import { EMPTY_PRODUCT, EMPTY_VARIANT } from '../constants';
-import { ImageOff, Plus, Trash2 } from 'lucide-react';
+import { ImageOff, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -15,6 +15,7 @@ interface ProductFormModalProps {
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, onSave, productToEdit, categories }) => {
   const [product, setProduct] = useState<Omit<Product, 'id'> & { id?: string }>(EMPTY_PRODUCT);
   const [imgError, setImgError] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   useEffect(() => {
     if (productToEdit) {
@@ -22,11 +23,13 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         ...productToEdit,
         imageUrls: (productToEdit.imageUrls && productToEdit.imageUrls.length > 0) ? productToEdit.imageUrls : [''],
         variants: productToEdit.variants.length > 0 ? productToEdit.variants : [{ ...EMPTY_VARIANT, id: `new-variant-${Date.now()}` }],
+        imageHint: productToEdit.imageHint || [],
       });
     } else {
       setProduct({ ...EMPTY_PRODUCT, category: categories[0] || '' });
     }
     setImgError(false);
+    setCurrentImageIndex(0);
   }, [productToEdit, isOpen, categories]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -89,9 +92,22 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
       ...product,
       imageUrls: product.imageUrls.filter(url => url && url.trim() !== ''),
       id: product.id || `${Date.now()}-${product.title.replace(/\s+/g, '-').toLowerCase()}`,
-      variants: product.variants.map(v => ({...v, stock: v.stock >= 0 ? v.stock : 0}))
+      variants: product.variants.map(v => ({...v, stock: v.stock >= 0 ? v.stock : 0})),
+      imageHint: product.imageHint.filter(hint => hint && hint.trim() !== ''),
     };
     onSave(productToSave);
+  };
+
+  const isEditModeWithMultipleImages = productToEdit && product.imageUrls.filter(u => u).length > 1;
+  const cleanImageUrls = product.imageUrls.filter(u => u);
+  
+  const handlePrevImage = () => {
+    setImgError(false);
+    setCurrentImageIndex(prev => (prev === 0 ? cleanImageUrls.length - 1 : prev - 1));
+  };
+  const handleNextImage = () => {
+    setImgError(false);
+    setCurrentImageIndex(prev => (prev === cleanImageUrls.length - 1 ? 0 : prev + 1));
   };
 
   return (
@@ -99,12 +115,39 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-4">
-            <div className="w-full h-48 bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center">
-              {!imgError && product.imageUrls[0] ? (
-                <img src={product.imageUrls[0]} alt="Vista previa" className="h-full w-full object-cover" onError={() => setImgError(true)} />
-              ) : (
-                <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Vista Previa</span></div>
-              )}
+             <div className="w-full h-48 bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center relative group">
+                {isEditModeWithMultipleImages ? (
+                    <>
+                        {imgError ? (
+                           <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Error al Cargar</span></div>
+                        ) : (
+                           <img
+                                key={currentImageIndex}
+                                src={cleanImageUrls[currentImageIndex]}
+                                alt={`Vista previa ${currentImageIndex + 1}`}
+                                className="h-full w-full object-cover"
+                                onError={() => setImgError(true)}
+                           />
+                        )}
+                        <button type="button" onClick={handlePrevImage} className="absolute left-2 top-1/2 -translate-y-1/2 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ChevronLeft size={24} />
+                        </button>
+                        <button type="button" onClick={handleNextImage} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ChevronRight size={24} />
+                        </button>
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                            {cleanImageUrls.map((_, index) => (
+                                <div key={index} className={`w-2 h-2 rounded-full ${index === currentImageIndex ? 'bg-white' : 'bg-white/50'}`}></div>
+                            ))}
+                        </div>
+                    </>
+                ) : (
+                    !imgError && product.imageUrls[0] ? (
+                        <img src={product.imageUrls[0]} alt="Vista previa" className="h-full w-full object-cover" onError={() => setImgError(true)} />
+                    ) : (
+                        <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Vista Previa</span></div>
+                    )
+                )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">URLs de Imagen</label>
@@ -129,6 +172,20 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                 <select name="category" id="category" value={product.category} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
                   {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
+            </div>
+            <div>
+              <label htmlFor="imageHint" className="block text-sm font-medium text-gray-300">Series / Hints (separados por coma)</label>
+              <input
+                type="text"
+                id="imageHint"
+                value={(product.imageHint || []).join(', ')}
+                onChange={(e) => {
+                  const hints = e.target.value.split(',').map(h => h.trim());
+                  setProduct(prev => ({ ...prev, imageHint: hints }));
+                }}
+                placeholder="Ej: Kaiju No. 8, custom minifigure"
+                className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+              />
             </div>
             <div>
               <label htmlFor="details" className="block text-sm font-medium text-gray-300">Detalles</label>

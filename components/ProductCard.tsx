@@ -44,10 +44,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
 
   const cardClasses = `
     bg-gray-800/50 backdrop-blur-sm border border-purple-500/20 rounded-xl shadow-lg overflow-hidden transition-all duration-300 hover:shadow-purple-500/20 hover:border-purple-500/40
-    ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-col md:flex-row'}
+    ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row'}
   `;
-  const imageContainerClasses = viewMode === 'grid' ? 'w-full h-56' : 'w-full md:w-1/3 h-64';
-  const contentClasses = `p-4 flex flex-col flex-grow ${viewMode === 'grid' ? '' : 'md:w-2/3'}`;
+  const imageContainerClasses = viewMode === 'grid' ? 'w-full h-56' : 'w-1/3 flex-shrink-0 aspect-square';
+  const contentClasses = `flex flex-col flex-grow ${viewMode === 'grid' ? 'p-4' : 'p-3 sm:p-4'}`;
 
   const handleImageError = () => setImgError(true);
   
@@ -87,12 +87,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
           </div>
           <h3 className="text-lg font-bold text-white mt-1">{product.title}</h3>
           {priceDisplay !== 'N/A' && <p className="text-xl font-light text-green-400 mt-1">{priceDisplay}</p>}
-          <p className="text-sm text-gray-300 mt-2">{product.details || product.description}</p>
+          {viewMode === 'grid' && <p className="text-sm text-gray-300 mt-2 line-clamp-2">{product.details || product.description}</p>}
         </div>
         
-        <div className="mt-4 pt-4 border-t border-gray-700 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-             <span className="text-sm font-medium text-gray-300">Stock Total:</span>
+        <div className="mt-4 pt-4 border-t border-gray-700 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2 mr-auto">
+             <span className="text-sm font-medium text-gray-300 whitespace-nowrap">Stock Total:</span>
              <span className="font-bold text-lg w-8 text-center">{totalStock}</span>
           </div>
           <div className="flex items-center gap-2">

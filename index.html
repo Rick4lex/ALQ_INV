@@ -30,6 +30,39 @@
         .no-print {
           display: none !important;
         }
+
+        /* Ocultar todo por defecto al imprimir */
+        body * {
+          visibility: hidden;
+        }
+        
+        /* Hacer visible solo el área del catálogo y su contenido */
+        #catalog-to-print, #catalog-to-print * {
+          visibility: visible;
+        }
+        
+        /* Posicionar el catálogo para que ocupe toda la página de impresión */
+        #catalog-to-print {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          padding: 1rem;
+          box-sizing: border-box;
+        }
+        
+        /* Ajustar el layout del grid para impresión (ej. 2 columnas) */
+        #catalog-to-print .grid {
+          display: grid !important;
+          grid-template-columns: repeat(2, 1fr) !important;
+          gap: 1rem !important;
+        }
+        
+        /* Evitar que las tarjetas de producto se corten entre páginas */
+        #catalog-to-print .grid > * {
+           page-break-inside: avoid !important;
+           border: 1px solid #e5e7eb !important;
+        }
       }
     </style>
 <script type="importmap">
