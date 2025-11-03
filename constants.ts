@@ -14,6 +14,7 @@ export const LOCAL_STORAGE_KEYS = {
   IGNORED_PRODUCTS: 'alkima-mizu-ignored-products',
   CATEGORIES: 'alkima-mizu-categories',
   MOVEMENTS: 'alkima-mizu-movements',
+  OMITTED_HINTS: 'alkima-mizu-omitted-hints',
 };
 
 export const EMPTY_VARIANT: Omit<Variant, 'id'> = {

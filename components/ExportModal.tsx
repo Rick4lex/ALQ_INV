@@ -4,6 +4,8 @@ import { Product, Variant } from '../types';
 import Modal from './Modal';
 import { Copy, Check, Printer, Filter, ChevronDown } from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { LOCAL_STORAGE_KEYS } from '../constants';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -48,7 +50,7 @@ const getPriceDisplay = (product: Product): string => {
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, products, ignoredProductIds }) => {
   const [selectedHint, setSelectedHint] = useState<string>('Todas');
-  const [omittedHints, setOmittedHints] = useState<string[]>([]);
+  const [omittedHints, setOmittedHints] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.OMITTED_HINTS, []);
   const [content, setContent] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -69,7 +71,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
   useEffect(() => {
     if (isOpen) {
       setSelectedHint('Todas');
-      setOmittedHints([]);
+      // Omitted hints are now persistent and should not be reset.
     }
   }, [isOpen, format]);
 
@@ -123,20 +125,25 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
         if (selectedHint !== 'Todas') {
             const header = `*${selectedHint}*\n`;
-            const productLines = (groupedByHint[selectedHint] || []).map(p => {
-                const priceDisplay = getPriceDisplay(p);
-                return `- ${p.title}: ${priceDisplay}`;
-            }).join('\n');
+            const productLines = (groupedByHint[selectedHint] || [])
+                .sort((a, b) => a.title.localeCompare(b.title))
+                .map(p => {
+                    const priceDisplay = getPriceDisplay(p);
+                    return `- ${p.title}: ${priceDisplay}`;
+                }).join('\n');
             markdown = header + productLines;
         } else {
             markdown = Object.entries(groupedByHint)
+                .sort(([hintA], [hintB]) => hintA.localeCompare(hintB))
                 .filter(([hint]) => !omittedHints.includes(hint))
                 .map(([hint, productsInGroup]) => {
                     const header = `\n*${hint}*\n`;
-                    const productLines = productsInGroup.map(p => {
-                        const priceDisplay = getPriceDisplay(p);
-                        return `- ${p.title}: ${priceDisplay}`;
-                    }).join('\n');
+                    const productLines = productsInGroup
+                        .sort((a, b) => a.title.localeCompare(b.title))
+                        .map(p => {
+                            const priceDisplay = getPriceDisplay(p);
+                            return `- ${p.title}: ${priceDisplay}`;
+                        }).join('\n');
                     return header + productLines;
                 }).join('\n');
         }
