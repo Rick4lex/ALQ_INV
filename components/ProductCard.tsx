@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { Product, ViewMode } from '../types';
 import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, History } from 'lucide-react';
+import { formatPrice } from '../utils';
 
 interface ProductCardProps {
   product: Product;
   viewMode: ViewMode;
   onEdit: (product: Product) => void;
   onDelete: (product: Product) => void;
-  onImageClick: (imageUrl: string) => void;
+  onImageClick: (imageUrls: string[]) => void;
   onIgnore: (product: Product) => void;
   onMovement: (product: Product) => void;
 }
@@ -15,32 +16,13 @@ interface ProductCardProps {
 const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, onDelete, onImageClick, onIgnore, onMovement }) => {
   const [imgError, setImgError] = useState(false);
 
-  const { totalStock, priceDisplay } = useMemo(() => {
-    const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
-    
-    let priceDisplay = 'N/A';
-    const prices = product.variants
-      .map(v => v.price ? parseFloat(v.price.replace(/[^0-9.-]+/g,"")) : NaN)
-      .filter(p => !isNaN(p));
-      
-    if (prices.length > 0) {
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const firstPriceString = product.variants.find(v => v.price)?.price || '';
-      const currency = firstPriceString.replace(/[0-9.,\s]/g, '');
-
-      if (minPrice === maxPrice) {
-        priceDisplay = firstPriceString;
-      } else {
-        priceDisplay = `${minPrice.toLocaleString('es-CO')} - ${maxPrice.toLocaleString('es-CO')} ${currency}`;
-      }
-    } else if (product.variants.length > 0 && product.variants[0].price) {
-        priceDisplay = product.variants[0].price;
-    }
-
-
-    return { totalStock, priceDisplay };
+  const totalStock = useMemo(() => {
+    return product.variants.reduce((sum, v) => sum + v.stock, 0);
   }, [product.variants]);
+
+  const priceDisplay = useMemo(() => {
+    return formatPrice(product);
+  }, [product]);
 
   const cardClasses = `
     bg-gray-800/50 backdrop-blur-sm border border-purple-500/20 rounded-xl shadow-lg overflow-hidden transition-all duration-300 hover:shadow-purple-500/20 hover:border-purple-500/40
@@ -51,7 +33,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
 
   const handleImageError = () => setImgError(true);
   
-  const hasImage = !imgError && product.imageUrls[0];
+  const hasImage = !imgError && product.imageUrls && product.imageUrls[0];
 
   const stockStatusColor = () => {
     if (totalStock > 10) return 'bg-brand-green';
@@ -63,7 +45,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
     <div className={cardClasses}>
       <div 
         className={`${imageContainerClasses} relative bg-gray-700 ${hasImage ? 'cursor-pointer group' : ''}`}
-        onClick={() => hasImage && onImageClick(product.imageUrls[0])}
+        onClick={() => hasImage && onImageClick(product.imageUrls)}
       >
         {hasImage ? (
           <img src={product.imageUrls[0]} alt={product.title} className="w-full h-full object-cover" onError={handleImageError} />
@@ -125,4 +107,4 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
   );
 };
 
-export default ProductCard;
+export default React.memo(ProductCard);

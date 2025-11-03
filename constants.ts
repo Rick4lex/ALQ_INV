@@ -15,13 +15,15 @@ export const LOCAL_STORAGE_KEYS = {
   CATEGORIES: 'alkima-mizu-categories',
   MOVEMENTS: 'alkima-mizu-movements',
   OMITTED_HINTS: 'alkima-mizu-omitted-hints',
+  CATALOG_SELECTED_HINTS: 'alkima-mizu-catalog-hints',
 };
 
 export const EMPTY_VARIANT: Omit<Variant, 'id'> = {
-  name: 'Único',
+  name: 'Unidad',
   sku: '',
-  price: '',
+  price: 0,
   stock: 1,
+  itemCount: 1,
 };
 
 export const EMPTY_PRODUCT: Omit<Product, 'id'> = {

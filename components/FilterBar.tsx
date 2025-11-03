@@ -70,4 +70,4 @@ const FilterBar: React.FC<FilterBarProps> = ({
   );
 };
 
-export default FilterBar;
+export default React.memo(FilterBar);

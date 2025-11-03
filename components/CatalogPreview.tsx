@@ -1,7 +1,7 @@
-
 import React from 'react';
 import { Product } from '../types';
 import { Sparkles } from 'lucide-react';
+import { formatPrice } from '../utils';
 
 interface CatalogPreviewProps {
   products: Product[];
@@ -29,35 +29,12 @@ const CatalogPreview: React.FC<CatalogPreviewProps> = ({ products }) => {
                 <p className="text-xs text-gray-600 mt-2 flex-grow">{product.details}</p>
               </div>
               <div className="mt-3 pt-3 border-t border-gray-200">
-                {(() => {
-                  const availablePricedVariants = product.variants.filter(v => v.stock > 0 && v.price);
-
-                  if (availablePricedVariants.length === 0) {
-                      return <div className="text-right font-semibold text-gray-700 text-sm">Consultar precio</div>;
-                  }
-
-                  const prices = availablePricedVariants
-                      .map(v => parseFloat(v.price!.replace(/[^0-9.-]+/g,"")));
-
-                  let priceDisplay;
-                  const minPrice = Math.min(...prices);
-                  const maxPrice = Math.max(...prices);
-                  const firstPriceString = availablePricedVariants[0].price!;
-                  
-                  if (minPrice === maxPrice) {
-                      priceDisplay = firstPriceString;
-                  } else {
-                      const currency = firstPriceString.replace(/[0-9.,\s]/g, '');
-                      priceDisplay = `${minPrice.toLocaleString('es-CO')} - ${maxPrice.toLocaleString('es-CO')} ${currency}`;
-                  }
-
-                  return (
-                      <div className="flex justify-between items-center">
-                          <span className="text-gray-700 font-medium text-sm">Precio:</span>
-                          <span className="font-semibold text-green-700 text-base">{priceDisplay}</span>
-                      </div>
-                  );
-                })()}
+                <div className="flex justify-between items-center">
+                    <span className="text-gray-700 font-medium text-sm">Precio:</span>
+                    <span className="font-semibold text-green-700 text-base">
+                      {formatPrice(product, { onlyAvailable: true })}
+                    </span>
+                </div>
               </div>
             </div>
           </div>

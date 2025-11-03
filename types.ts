@@ -9,11 +9,12 @@ export interface Movement {
 }
 
 export interface Variant {
-  id: string;
+  id:string;
   name: string;
   sku?: string;
-  price?: string;
+  price?: number;
   stock: number;
+  itemCount?: number;
 }
 
 export interface Product {

@@ -25,4 +25,4 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ checked, onChange, label })
   );
 };
 
-export default ToggleSwitch;
+export default React.memo(ToggleSwitch);

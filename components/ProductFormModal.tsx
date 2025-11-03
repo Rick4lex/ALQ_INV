@@ -36,7 +36,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const { name, value } = e.target;
     setProduct(prev => ({ ...prev, [name]: value }));
   };
-  
+
   const handleImageUrlChange = (index: number, value: string) => {
     setImgError(false);
     const newImageUrls = [...product.imageUrls];
@@ -54,10 +54,22 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
 
   const handleVariantChange = (index: number, field: keyof Variant, value: string | number) => {
     const newVariants = [...product.variants];
-    const variantToUpdate = { ...newVariants[index] };
-    
-    if (field === 'stock') {
-      variantToUpdate[field] = Math.max(0, Number(value));
+    let variantToUpdate = { ...newVariants[index] };
+    const oldName = variantToUpdate.name;
+
+    if (field === 'stock' || field === 'price') {
+      const numValue = Number(value);
+      // @ts-ignore
+      variantToUpdate[field] = isNaN(numValue) ? 0 : numValue < 0 ? 0 : numValue;
+    } else if (field === 'itemCount') {
+        const numValue = Number(value);
+        const newItemCount = isNaN(numValue) ? 1 : Math.max(1, numValue);
+        variantToUpdate.itemCount = newItemCount;
+        
+        // Auto-update name only if it was the default or a package name
+        if (oldName === 'Único' || oldName === 'Unidad' || /^Paquete de \d+$/.test(oldName)) {
+            variantToUpdate.name = newItemCount > 1 ? `Paquete de ${newItemCount}` : 'Unidad';
+        }
     } else {
       // @ts-ignore
       variantToUpdate[field] = value;
@@ -92,7 +104,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
       ...product,
       imageUrls: product.imageUrls.filter(url => url && url.trim() !== ''),
       id: product.id || `${Date.now()}-${product.title.replace(/\s+/g, '-').toLowerCase()}`,
-      variants: product.variants.map(v => ({...v, stock: v.stock >= 0 ? v.stock : 0})),
+      variants: product.variants.map(v => ({...v, stock: v.stock >= 0 ? v.stock : 0, itemCount: v.itemCount || 1})),
       imageHint: product.imageHint.filter(hint => hint && hint.trim() !== ''),
     };
     onSave(productToSave);
@@ -112,7 +124,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={productToEdit ? 'Editar Producto' : 'Añadir Producto'} size="xl">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-4">
              <div className="w-full h-48 bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center relative group">
@@ -195,31 +207,42 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         </div>
         
         <div className="pt-4 border-t border-gray-700">
-          <h3 className="text-lg font-semibold mb-2">Variantes</h3>
+          <h3 className="text-lg font-semibold mb-2">Variantes de Venta</h3>
           <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-            {product.variants.map((variant, index) => (
-              <div key={variant.id} className="grid grid-cols-12 gap-2 p-3 bg-gray-900/50 rounded-lg">
-                <div className="col-span-12 sm:col-span-3">
-                  <label className="text-xs text-gray-400">Nombre</label>
-                  <input type="text" value={variant.name} onChange={(e) => handleVariantChange(index, 'name', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
+            {product.variants.map((variant, index) => {
+              const perItemPrice = (variant.price && variant.itemCount && variant.itemCount > 1) ? Math.round(variant.price / variant.itemCount) : 0;
+              return (
+                <div key={variant.id} className="grid grid-cols-12 gap-x-3 gap-y-2 p-3 bg-gray-900/50 rounded-lg">
+                  <div className="col-span-12 sm:col-span-4">
+                    <label className="text-xs text-gray-400">Nombre Variante</label>
+                    <input type="text" value={variant.name} onChange={(e) => handleVariantChange(index, 'name', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
+                  </div>
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className="text-xs text-gray-400">SKU</label>
+                    <input type="text" value={variant.sku || ''} onChange={(e) => handleVariantChange(index, 'sku', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
+                  </div>
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className="text-xs text-gray-400">Cant. Items</label>
+                    <input type="number" value={variant.itemCount || 1} min="1" onChange={(e) => handleVariantChange(index, 'itemCount', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
+                  </div>
+                   <div className="col-span-6 sm:col-span-2">
+                    <label className="text-xs text-gray-400">Precio</label>
+                    <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-400 text-sm">$</span>
+                        <input type="number" value={variant.price || ''} onChange={(e) => handleVariantChange(index, 'price', e.target.value)} placeholder="0" className="w-full bg-gray-700 border-gray-600 rounded py-1 pl-6 pr-2 text-sm" />
+                    </div>
+                     {perItemPrice > 0 && <span className="text-xs text-green-400/80">(${perItemPrice.toLocaleString('es-CO')} c/u)</span>}
+                  </div>
+                  <div className="col-span-6 sm:col-span-1">
+                    <label className="text-xs text-gray-400">Stock</label>
+                    <input type="number" value={variant.stock} min="0" onChange={(e) => handleVariantChange(index, 'stock', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
+                  </div>
+                  <div className="col-span-12 sm:col-span-1 flex items-end justify-end">
+                    <button type="button" onClick={() => removeVariant(index)} disabled={product.variants.length <= 1} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 disabled:opacity-50" aria-label="Eliminar Variante"><Trash2 size={18} /></button>
+                  </div>
                 </div>
-                <div className="col-span-6 sm:col-span-3">
-                   <label className="text-xs text-gray-400">SKU</label>
-                  <input type="text" value={variant.sku || ''} onChange={(e) => handleVariantChange(index, 'sku', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
-                </div>
-                <div className="col-span-6 sm:col-span-2">
-                   <label className="text-xs text-gray-400">Precio</label>
-                  <input type="text" value={variant.price || ''} onChange={(e) => handleVariantChange(index, 'price', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
-                </div>
-                <div className="col-span-6 sm:col-span-2">
-                   <label className="text-xs text-gray-400">Stock</label>
-                  <input type="number" value={variant.stock} min="0" onChange={(e) => handleVariantChange(index, 'stock', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
-                </div>
-                <div className="col-span-6 sm:col-span-2 flex items-end justify-end">
-                   <button type="button" onClick={() => removeVariant(index)} disabled={product.variants.length <= 1} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 disabled:opacity-50" aria-label="Eliminar Variante"><Trash2 size={18} /></button>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
           <button type="button" onClick={addVariant} className="mt-2 flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300"><Plus size={16} />Añadir Variante</button>
         </div>

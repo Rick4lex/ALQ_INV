@@ -13,7 +13,7 @@ import ConfirmIgnoreModal from './components/ConfirmIgnoreModal';
 import ExportModal from './components/ExportModal';
 import AddCategoryModal from './components/AddCategoryModal';
 import MovementHistoryModal from './components/MovementHistoryModal';
-import { X } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const App: React.FC = () => {
   const [products, setProducts] = useLocalStorage<Product[] | null>(LOCAL_STORAGE_KEYS.PRODUCTS, null);
@@ -27,7 +27,7 @@ const App: React.FC = () => {
   const [allCategories, setAllCategories] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
   const [movements, setMovements] = useLocalStorage<Movements>(LOCAL_STORAGE_KEYS.MOVEMENTS, {});
   const [modal, setModal] = useState<ModalState | null>(null);
-  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [fullscreenData, setFullscreenData] = useState<{ images: string[]; index: number } | null>(null);
 
   const filteredProducts = useMemo(() => {
     if (!products) return [];
@@ -175,29 +175,84 @@ const App: React.FC = () => {
   }, [allCategories, setAllCategories]);
 
   const handleBackupDownload = useCallback(() => {
-    const backupData = {
-      products,
-      preferences,
-      ignoredProductIds,
-      categories: allCategories,
-      movements,
-    };
-    const jsonString = JSON.stringify(backupData, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const date = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `alkima-mizu-backup-${date}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    if (window.confirm('¿Estás seguro de que quieres descargar una copia de seguridad completa?')) {
+      const backupData = {
+        products,
+        preferences,
+        ignoredProductIds,
+        categories: allCategories,
+        movements,
+      };
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `alkima-mizu-backup-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   }, [products, preferences, ignoredProductIds, allCategories, movements]);
+
+  const handleImageClick = (images: string[]) => {
+    const validImages = images.filter(Boolean);
+    if (validImages.length > 0) {
+      setFullscreenData({ images: validImages, index: 0 });
+    }
+  };
+
+  const changeFullscreenImage = (direction: 'next' | 'prev') => {
+    if (!fullscreenData) return;
+    setFullscreenData(prev => {
+        if (!prev) return null;
+        const newIndex = direction === 'next'
+            ? (prev.index + 1) % prev.images.length
+            : (prev.index - 1 + prev.images.length) % prev.images.length;
+        return { ...prev, index: newIndex };
+    });
+  };
 
   if (products === null) {
     return <JsonLoader onJsonLoad={handleJsonLoad} />;
   }
+
+  const renderModal = () => {
+    if (!modal) return null;
+
+    const commonProps = {
+      isOpen: true,
+      onClose: () => setModal(null),
+    };
+
+    switch (modal.type) {
+      case 'add':
+        return <ProductFormModal {...commonProps} onSave={handleProductSave} categories={allCategories} />;
+      
+      case 'edit':
+        return <ProductFormModal {...commonProps} onSave={handleProductSave} productToEdit={modal.product} categories={allCategories} />;
+      
+      case 'delete':
+        return <ConfirmDeleteModal {...commonProps} onConfirm={() => handleProductDelete(modal.product.id)} productName={modal.product.title} />;
+      
+      case 'ignore':
+        return <ConfirmIgnoreModal {...commonProps} onConfirm={() => handleIgnoreProduct(modal.product.id)} productName={modal.product.title} />;
+
+      case 'export':
+        return <ExportModal {...commonProps} format={modal.format} products={products} ignoredProductIds={ignoredProductIds} />;
+
+      case 'add-category':
+        return <AddCategoryModal {...commonProps} onSave={handleCategorySave} existingCategories={allCategories} />;
+      
+      case 'movements':
+        return <MovementHistoryModal {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} />;
+
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
@@ -225,7 +280,7 @@ const App: React.FC = () => {
             viewMode={preferences.viewMode}
             onEdit={(product) => setModal({ type: 'edit', product })}
             onDelete={(product) => setModal({ type: 'delete', product })}
-            onImageClick={setFullscreenImage}
+            onImageClick={handleImageClick}
             onIgnore={(product) => setModal({ type: 'ignore', product })}
             onMovement={(product) => setModal({ type: 'movements', product })}
           />
@@ -233,71 +288,34 @@ const App: React.FC = () => {
       </div>
       <Footer onExport={(format) => setModal({ type: 'export', format })} onBackup={handleBackupDownload}/>
 
-      {modal?.type === 'add' && (
-        <ProductFormModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          onSave={handleProductSave}
-          categories={allCategories}
-        />
-      )}
-      {modal?.type === 'edit' && (
-        <ProductFormModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          onSave={handleProductSave}
-          productToEdit={modal.product}
-          categories={allCategories}
-        />
-      )}
-      {modal?.type === 'delete' && (
-        <ConfirmDeleteModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          onConfirm={() => handleProductDelete(modal.product.id)}
-          productName={modal.product.title}
-        />
-      )}
-       {modal?.type === 'ignore' && (
-        <ConfirmIgnoreModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          onConfirm={() => handleIgnoreProduct(modal.product.id)}
-          productName={modal.product.title}
-        />
-      )}
-      {modal?.type === 'export' && (
-        <ExportModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          format={modal.format}
-          products={products}
-          ignoredProductIds={ignoredProductIds}
-        />
-      )}
-      {modal?.type === 'add-category' && (
-        <AddCategoryModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          onSave={handleCategorySave}
-          existingCategories={allCategories}
-        />
-      )}
-      {modal?.type === 'movements' && (
-        <MovementHistoryModal
-          isOpen={true}
-          onClose={() => setModal(null)}
-          product={modal.product}
-          movements={movements}
-          onSaveMovement={handleSaveMovement}
-        />
-      )}
-      {fullscreenImage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenImage(null)}>
-          <img src={fullscreenImage} alt="Fullscreen view" className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl" />
-          <button onClick={() => setFullscreenImage(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors">
-            <X size={28} />
-          </button>
+      {renderModal()}
+
+      {fullscreenData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenData(null)}>
+            <button onClick={() => setFullscreenData(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20">
+              <X size={28} />
+            </button>
+
+            {fullscreenData.images.length > 1 && (
+                <>
+                    <button onClick={(e) => { e.stopPropagation(); changeFullscreenImage('prev'); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20">
+                        <ChevronLeft size={32} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); changeFullscreenImage('next'); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20">
+                        <ChevronRight size={32} />
+                    </button>
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/50 text-white text-sm rounded-full">
+                        {fullscreenData.index + 1} / {fullscreenData.images.length}
+                    </div>
+                </>
+            )}
+
+          <img 
+            src={fullscreenData.images[fullscreenData.index]} 
+            alt="Fullscreen view" 
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl" 
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>

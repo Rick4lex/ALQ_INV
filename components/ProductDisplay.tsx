@@ -7,7 +7,7 @@ interface ProductDisplayProps {
   viewMode: ViewMode;
   onEdit: (product: Product) => void;
   onDelete: (product: Product) => void;
-  onImageClick: (imageUrl: string) => void;
+  onImageClick: (imageUrls: string[]) => void;
   onIgnore: (product: Product) => void;
   onMovement: (product: Product) => void;
 }
@@ -39,4 +39,4 @@ const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onE
   );
 };
 
-export default ProductDisplay;
+export default React.memo(ProductDisplay);
