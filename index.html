@@ -23,10 +23,22 @@
     </script>
     <style>
       @media print {
+        @page {
+          size: A4;
+          margin: 2cm;
+        }
+
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+        }
+
         body {
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
+        
         .no-print {
           display: none !important;
         }
@@ -41,21 +53,19 @@
           visibility: visible;
         }
         
-        /* Posicionar el catálogo para que ocupe toda la página de impresión */
+        /* Configurar el contenedor de impresión */
         #catalog-to-print {
-          position: absolute;
-          left: 0;
-          top: 0;
+          position: static; /* Cambiado de absolute a static */
           width: 100%;
-          padding: 1rem;
+          padding: 0 !important; /* El padding es manejado por @page margin */
           margin: 0 !important;
           box-shadow: none !important;
           border: none !important;
-          box-sizing: border-box;
         }
         
-        /* Ajustar el layout del grid para impresión (3 columnas) */
+        /* Forzar un salto de página antes de la grilla */
         #catalog-to-print .grid {
+          break-before: page;
           display: grid !important;
           grid-template-columns: repeat(3, 1fr) !important;
           gap: 1rem !important;
@@ -63,7 +73,7 @@
         
         /* Evitar que las tarjetas de producto se corten entre páginas */
         #catalog-to-print .grid > * {
-           page-break-inside: avoid !important;
+           break-inside: avoid !important; /* 'page-break-inside' está obsoleto */
            border: 1px solid #e5e7eb !important;
         }
       }
