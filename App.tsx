@@ -26,7 +26,7 @@ const App: React.FC = () => {
     allCategories, setAllCategories,
     movements, setMovements,
     manualMovements, setManualMovements,
-    addMovement, handleProductSave, handleMovementDelete
+    addMovement, handleProductSave, handleMultipleMovementsDelete
   } = useAppStore();
   
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -90,12 +90,6 @@ const App: React.FC = () => {
     }) || null);
     addMovement(variantId, { ...movementData, newStock: newStockValue });
   }, [setProducts, addMovement]);
-  
-  const handleMovementDeleteWithConfirmation = useCallback((variantId: string, movementId: string) => {
-      if (window.confirm('¿Estás seguro de que quieres borrar este registro? Esta acción recalculará el stock y es irreversible.')) {
-          handleMovementDelete(variantId, movementId);
-      }
-  }, [handleMovementDelete]);
 
   const handleManualMovementSave = useCallback((movement: Omit<ManualMovement, 'id'>) => {
     setManualMovements(prev => [...prev, { ...movement, id: `manual-${Date.now()}-${Math.random()}` }]);
@@ -155,7 +149,7 @@ const App: React.FC = () => {
       case 'ignore': return <ConfirmIgnoreModal {...commonProps} onConfirm={() => handleIgnoreProduct(modal.product.id)} productName={modal.product.title} />;
       case 'export': return <ExportModal {...commonProps} format={modal.format} products={products} ignoredProductIds={ignoredProductIds} />;
       case 'add-category': return <AddCategoryModal {...commonProps} onSave={handleCategorySave} existingCategories={allCategories} />;
-      case 'movements': return <MovementHistoryModal {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} onDeleteMovement={handleMovementDeleteWithConfirmation} />;
+      case 'movements': return <MovementHistoryModal {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} onDeleteMovements={handleMultipleMovementsDelete} />;
       case 'manual-movement': return <ManualMovementModal {...commonProps} onSave={handleManualMovementSave} />;
       default: return null;
     }
@@ -164,14 +158,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
       <div className={currentView === 'catalog' ? "pb-28 md:pb-24" : ""}>
-        <Header 
-          viewMode={preferences.viewMode}
-          onViewModeChange={(mode) => updatePreference('viewMode', mode)}
-          onAddProduct={() => setModal({ type: 'add' })}
-          onAddCategory={() => setModal({ type: 'add-category' })}
-          onReset={handleReset}
-          onNavigateToFinancials={() => setCurrentView('financials')}
-        />
+        {currentView === 'catalog' && (
+          <Header 
+            viewMode={preferences.viewMode}
+            onViewModeChange={(mode) => updatePreference('viewMode', mode)}
+            onAddProduct={() => setModal({ type: 'add' })}
+            onAddCategory={() => setModal({ type: 'add-category' })}
+            onReset={handleReset}
+            onNavigateToFinancials={() => setCurrentView('financials')}
+          />
+        )}
         <main>
            {currentView === 'catalog' ? (
             <div className="container mx-auto px-4 py-6">

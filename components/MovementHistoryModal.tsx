@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Movement, Movements } from '../types';
 import Modal from './Modal';
 import { Plus, Minus, ArrowRight, Trash2 } from 'lucide-react';
@@ -9,11 +9,12 @@ interface MovementHistoryModalProps {
   product: Product;
   movements: Movements;
   onSaveMovement: (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => void;
-  onDeleteMovement: (variantId: string, movementId: string) => void;
+  onDeleteMovements: (variantId: string, movementIds: string[]) => void;
 }
 
-const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onClose, product, movements, onSaveMovement, onDeleteMovement }) => {
+const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onClose, product, movements, onSaveMovement, onDeleteMovements }) => {
   const [selectedVariantId, setSelectedVariantId] = useState<string>(product.variants[0]?.id || '');
+  const [selectedMovementIds, setSelectedMovementIds] = useState<Set<string>>(new Set());
 
   const [type, setType] = useState<'Venta' | 'Stock' | 'Ajuste'>('Venta');
   const [change, setChange] = useState<number>(1);
@@ -26,6 +27,40 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
   const history = useMemo(() => {
     return (movements[selectedVariantId] || []).slice().reverse();
   }, [movements, selectedVariantId]);
+
+  useEffect(() => {
+    setSelectedMovementIds(new Set());
+  }, [isOpen, selectedVariantId]);
+
+  const handleSelect = (movementId: string) => {
+    setSelectedMovementIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(movementId)) {
+        newSet.delete(movementId);
+      } else {
+        newSet.add(movementId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedMovementIds(new Set(history.map(m => m.id)));
+    } else {
+      setSelectedMovementIds(new Set());
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedMovementIds.size === 0) return;
+    const confirmation = window.confirm(`¿Estás seguro de que quieres eliminar ${selectedMovementIds.size} registro(s)? Esta acción recalculará el stock y es irreversible.`);
+    if (confirmation) {
+      onDeleteMovements(selectedVariantId, Array.from(selectedMovementIds));
+    }
+  };
+
+  const isAllSelected = history.length > 0 && selectedMovementIds.size === history.length;
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +91,7 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
     'Stock': { icon: <Plus size={16}/>, color: 'bg-green-500/80' },
     'Ajuste': { icon: <ArrowRight size={16}/>, color: 'bg-yellow-500/80' },
     'Inicial': { icon: <ArrowRight size={16}/>, color: 'bg-blue-500/80' },
-  }
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Movimientos de: ${product.title}`} size="xl">
@@ -98,13 +133,34 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
         </div>
 
         {/* Columna de Historial */}
-        <div className="md:col-span-2">
-          <h3 className="font-semibold mb-2">Historial de: <span className="text-purple-400">{selectedVariant?.name}</span></h3>
-          <div className="bg-gray-900/50 rounded-lg p-2 border border-gray-700 max-h-96 overflow-y-auto">
+        <div className="md:col-span-2 flex flex-col">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-semibold">Historial de: <span className="text-purple-400">{selectedVariant?.name}</span></h3>
+            {history.length > 0 && (
+              <div className="flex items-center gap-2 pr-4">
+                <label htmlFor="select-all" className="text-sm text-gray-400 cursor-pointer">Seleccionar todo</label>
+                <input 
+                  type="checkbox" 
+                  id="select-all"
+                  checked={isAllSelected}
+                  onChange={handleSelectAll}
+                  className="form-checkbox h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600 cursor-pointer"
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex-grow bg-gray-900/50 rounded-lg border border-gray-700 max-h-96 overflow-y-auto">
             {history.length > 0 ? (
-              <ul className="space-y-2">
+              <ul className="space-y-2 p-2">
                 {history.map(mov => (
-                  <li key={mov.id} className="flex items-center gap-2 p-2 bg-gray-800 rounded">
+                  <li key={mov.id} className={`flex items-center gap-2 p-2 rounded transition-colors ${selectedMovementIds.has(mov.id) ? 'bg-purple-900/50' : 'bg-gray-800'}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedMovementIds.has(mov.id)}
+                      onChange={() => handleSelect(mov.id)}
+                      className="form-checkbox h-5 w-5 rounded bg-gray-700 border-gray-600 text-purple-500 focus:ring-purple-600 cursor-pointer flex-shrink-0"
+                      aria-label={`Seleccionar movimiento ${mov.id}`}
+                    />
                     <div className="flex-shrink-0">
                         <span className={`w-7 h-7 rounded-full flex items-center justify-center text-white ${movementTypeConfig[mov.type]?.color || 'bg-gray-500'}`}>
                             {movementTypeConfig[mov.type]?.icon}
@@ -120,15 +176,6 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
                         {mov.notes && <span className="italic truncate" title={mov.notes}>"{mov.notes}"</span>}
                       </div>
                     </div>
-                     <div className="flex-shrink-0">
-                      <button 
-                        onClick={() => onDeleteMovement(mov.variantId, mov.id)}
-                        className="p-2 rounded-full text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                        title="Eliminar registro"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
                   </li>
                 ))}
               </ul>
@@ -136,6 +183,17 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
               <p className="text-center text-gray-400 py-8">No hay movimientos para esta variante.</p>
             )}
           </div>
+          {selectedMovementIds.size > 0 && (
+            <div className="mt-4">
+              <button 
+                onClick={handleDeleteSelected}
+                className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-brand-red hover:bg-red-600 rounded-md transition-colors font-semibold"
+              >
+                <Trash2 size={16} />
+                Eliminar {selectedMovementIds.size} Seleccionado(s)
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </Modal>

@@ -135,18 +135,30 @@ export const useAppStore = () => {
         });
     }, [setProducts, addMovement]);
 
-    const handleMovementDelete = useCallback((variantId: string, movementId: string) => {
-        const remainingMovements = (movements[variantId] || []).filter(m => m.id !== movementId);
+    const handleMultipleMovementsDelete = useCallback((variantId: string, movementIdsToDelete: string[]) => {
+        const originalMovements = movements[variantId] || [];
+        const remainingMovements = originalMovements.filter(m => !movementIdsToDelete.includes(m.id));
+        
         let currentStock = 0;
         const recalculatedMovements = remainingMovements.sort((a, b) => a.timestamp - b.timestamp).map(m => {
             currentStock = m.type === 'Inicial' ? m.change : currentStock + m.change;
-            currentStock = Math.max(0, currentStock);
+            currentStock = Math.max(0, currentStock); // Ensure stock doesn't go negative
             return { ...m, newStock: currentStock };
         });
-        const finalStock = recalculatedMovements.length > 0 ? recalculatedMovements[recalculatedMovements.length - 1].newStock : 0;
 
-        setProducts(prev => prev?.map(p => ({ ...p, variants: p.variants.map(v => v.id === variantId ? { ...v, stock: finalStock } : v) })) || null);
-        setMovements(prev => ({ ...prev, [variantId]: recalculatedMovements }));
+        const finalStock = recalculatedMovements.length > 0 
+            ? recalculatedMovements[recalculatedMovements.length - 1].newStock 
+            : 0;
+
+        setProducts(prev => prev?.map(p => ({
+            ...p,
+            variants: p.variants.map(v => v.id === variantId ? { ...v, stock: finalStock } : v)
+        })) || null);
+
+        setMovements(prev => ({
+            ...prev,
+            [variantId]: recalculatedMovements
+        }));
     }, [movements, setMovements, setProducts]);
     
     return {
@@ -156,7 +168,7 @@ export const useAppStore = () => {
         allCategories, setAllCategories,
         movements, setMovements,
         manualMovements, setManualMovements,
-        addMovement, handleProductSave, handleMovementDelete,
+        addMovement, handleProductSave, handleMultipleMovementsDelete,
     };
 };
 
