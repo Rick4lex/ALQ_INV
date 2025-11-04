@@ -2,6 +2,18 @@ import { Product, Variant } from './types';
 
 const formatCurrency = (amount: number) => `$${amount.toLocaleString('es-CO')}`;
 
+export const getSortPrice = (product: Product): number => {
+  const prices = product.variants
+    .map(v => v.price)
+    .filter((p): p is number => typeof p === 'number' && p > 0);
+    
+  if (prices.length === 0) {
+    return -1; // Productos sin precio o con precio 0 van primero
+  }
+  
+  return Math.min(...prices);
+};
+
 export const formatVariantPrice = (variant: Variant, options: { markdown?: boolean } = {}): string => {
   const { markdown = false } = options;
   if (typeof variant.price !== 'number' || variant.price <= 0) return '';

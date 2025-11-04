@@ -5,7 +5,7 @@ import { Copy, Check, Printer, Filter, ChevronDown } from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { LOCAL_STORAGE_KEYS } from '../constants';
-import { formatPrice, transformProductForExport, formatVariantPrice } from '../utils';
+import { formatPrice, transformProductForExport, formatVariantPrice, getSortPrice } from '../utils';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -57,7 +57,16 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
     if (!isOpen) return;
 
     if (format === 'json') {
-      const productsToExport = products
+      const sortedProducts = [...products].sort((a, b) => {
+        const priceA = getSortPrice(a);
+        const priceB = getSortPrice(b);
+        if (priceA === -1 && priceB !== -1) return -1;
+        if (priceA !== -1 && priceB === -1) return 1;
+        if (priceA === -1 && priceB === -1) return a.title.localeCompare(b.title);
+        return priceA - priceB;
+      });
+
+      const productsToExport = sortedProducts
         .filter(p => {
             if (p.id === 'banner') return true;
             return p.imageUrls && p.imageUrls.length > 0 && p.imageUrls[0].trim() !== '';
@@ -69,7 +78,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
     } else if (format === 'markdown') {
         let markdown = '';
-        const groupedByHint = filteredProducts.reduce((acc, product) => {
+        // FIX: Explicitly type the accumulator in the 'reduce' function to ensure correct type inference for 'groupedByHint'.
+        const groupedByHint = filteredProducts.reduce((acc: Record<string, Product[]>, product) => {
             const hints = product.imageHint && product.imageHint.length > 0 ? product.imageHint : ['Otros'];
             hints.forEach(hint => {
                 if (!acc[hint]) acc[hint] = [];
@@ -80,7 +90,14 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
         const generateProductMarkdown = (productsInGroup: Product[]) => {
             return productsInGroup
-                .sort((a, b) => a.title.localeCompare(b.title))
+                .sort((a, b) => {
+                    const priceA = getSortPrice(a);
+                    const priceB = getSortPrice(b);
+                    if (priceA === -1 && priceB !== -1) return -1;
+                    if (priceA !== -1 && priceB === -1) return 1;
+                    if (priceA === -1 && priceB === -1) return a.title.localeCompare(b.title);
+                    return priceA - priceB;
+                })
                 .map(p => {
                     const availableVariants = p.variants.filter(v => v.stock > 0 && v.price && v.price > 0);
                     if (availableVariants.length === 0) return `- ${p.title}: Agotado`;

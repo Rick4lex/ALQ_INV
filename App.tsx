@@ -14,6 +14,7 @@ import ExportModal from './components/ExportModal';
 import AddCategoryModal from './components/AddCategoryModal';
 import MovementHistoryModal from './components/MovementHistoryModal';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getSortPrice } from './utils';
 
 const App: React.FC = () => {
   const [products, setProducts] = useLocalStorage<Product[] | null>(LOCAL_STORAGE_KEYS.PRODUCTS, null);
@@ -39,6 +40,15 @@ const App: React.FC = () => {
       const matchesCategory = preferences.selectedCategory === 'Todas' || product.category === preferences.selectedCategory;
       const matchesAvailability = !preferences.showAvailableOnly || product.variants.some(v => v.stock > 0);
       return matchesSearch && matchesCategory && matchesAvailability;
+    }).sort((a, b) => {
+        const priceA = getSortPrice(a);
+        const priceB = getSortPrice(b);
+
+        if (priceA === -1 && priceB !== -1) return -1; // a (sin precio) va primero
+        if (priceA !== -1 && priceB === -1) return 1;  // b (sin precio) va primero
+        if (priceA === -1 && priceB === -1) return a.title.localeCompare(b.title); // Ambos sin precio, ordenar por título
+
+        return priceA - priceB; // Ordenar por precio ascendente
     });
   }, [products, preferences, ignoredProductIds]);
 
