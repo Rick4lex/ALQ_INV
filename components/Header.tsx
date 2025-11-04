@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ViewMode } from '../types';
-import { LayoutGrid, List, Plus, Undo2, Sparkles, Tag } from 'lucide-react';
+import { LayoutGrid, List, Plus, Undo2, Sparkles, Tag, BarChartHorizontal } from 'lucide-react';
 
 interface HeaderProps {
   viewMode: ViewMode;
@@ -9,9 +9,10 @@ interface HeaderProps {
   onAddProduct: () => void;
   onReset: () => void;
   onAddCategory: () => void;
+  onNavigateToFinancials: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ viewMode, onViewModeChange, onAddProduct, onReset, onAddCategory }) => {
+const Header: React.FC<HeaderProps> = ({ viewMode, onViewModeChange, onAddProduct, onReset, onAddCategory, onNavigateToFinancials }) => {
   return (
     <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
       <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -38,6 +39,10 @@ const Header: React.FC<HeaderProps> = ({ viewMode, onViewModeChange, onAddProduc
         </div>
 
         <div className="flex items-center gap-2">
+           <button onClick={onNavigateToFinancials} className="flex items-center gap-2 bg-brand-green hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
+            <BarChartHorizontal size={18} />
+            <span className="hidden sm:inline">Finanzas</span>
+          </button>
            <button onClick={onAddCategory} className="flex items-center gap-2 bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
             <Tag size={18} />
             <span className="hidden sm:inline">Nueva Cat.</span>

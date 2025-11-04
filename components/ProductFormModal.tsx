@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Product, Variant } from '../types';
 import Modal from './Modal';
 import { EMPTY_PRODUCT, EMPTY_VARIANT } from '../constants';
@@ -16,6 +16,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
   const [product, setProduct] = useState<Omit<Product, 'id'> & { id?: string }>(EMPTY_PRODUCT);
   const [imgError, setImgError] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const touchStartX = useRef(0);
 
   useEffect(() => {
     if (productToEdit) {
@@ -57,7 +58,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     let variantToUpdate = { ...newVariants[index] };
     const oldName = variantToUpdate.name;
 
-    if (field === 'stock' || field === 'price') {
+    if (field === 'stock' || field === 'price' || field === 'cost') {
       const numValue = Number(value);
       // @ts-ignore
       variantToUpdate[field] = isNaN(numValue) ? 0 : numValue < 0 ? 0 : numValue;
@@ -104,13 +105,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
       ...product,
       imageUrls: product.imageUrls.filter(url => url && url.trim() !== ''),
       id: product.id || `${Date.now()}-${product.title.replace(/\s+/g, '-').toLowerCase()}`,
-      variants: product.variants.map(v => ({...v, stock: v.stock >= 0 ? v.stock : 0, itemCount: v.itemCount || 1})),
+      variants: product.variants.map(v => ({...v, cost: v.cost || 0, stock: v.stock >= 0 ? v.stock : 0, itemCount: v.itemCount || 1})),
       imageHint: product.imageHint.filter(hint => hint && hint.trim() !== ''),
     };
     onSave(productToSave);
   };
-
-  const isEditModeWithMultipleImages = productToEdit && product.imageUrls.filter(u => u).length > 1;
+  
   const cleanImageUrls = product.imageUrls.filter(u => u);
   
   const handlePrevImage = () => {
@@ -122,13 +122,39 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     setCurrentImageIndex(prev => (prev === cleanImageUrls.length - 1 ? 0 : prev + 1));
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  
+  const handleTouchMove = (e: React.TouchEvent) => {
+      if (touchStartX.current === 0) return;
+      const touchEndX = e.touches[0].clientX;
+      const diff = touchStartX.current - touchEndX;
+      
+      // Swipe left
+      if (diff > 50) {
+          handleNextImage();
+          touchStartX.current = 0;
+      }
+      
+      // Swipe right
+      if (diff < -50) {
+          handlePrevImage();
+          touchStartX.current = 0;
+      }
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={productToEdit ? 'Editar Producto' : 'Añadir Producto'} size="xl">
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-4">
-             <div className="w-full h-48 bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center relative group">
-                {isEditModeWithMultipleImages ? (
+             <div 
+                className="w-full h-48 bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center relative group"
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+             >
+                {cleanImageUrls.length > 0 ? (
                     <>
                         {imgError ? (
                            <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Error al Cargar</span></div>
@@ -141,35 +167,37 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                 onError={() => setImgError(true)}
                            />
                         )}
-                        <button type="button" onClick={handlePrevImage} className="absolute left-2 top-1/2 -translate-y-1/2 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ChevronLeft size={24} />
-                        </button>
-                        <button type="button" onClick={handleNextImage} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ChevronRight size={24} />
-                        </button>
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                            {cleanImageUrls.map((_, index) => (
-                                <div key={index} className={`w-2 h-2 rounded-full ${index === currentImageIndex ? 'bg-white' : 'bg-white/50'}`}></div>
-                            ))}
-                        </div>
+                        {cleanImageUrls.length > 1 && (
+                            <>
+                                <button type="button" onClick={handlePrevImage} className="absolute left-2 top-1/2 -translate-y-1/2 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hidden md:block">
+                                    <ChevronLeft size={24} />
+                                </button>
+                                <button type="button" onClick={handleNextImage} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hidden md:block">
+                                    <ChevronRight size={24} />
+                                </button>
+                                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                                    {cleanImageUrls.map((_, index) => (
+                                        <div key={index} className={`w-2 h-2 rounded-full transition-colors ${index === currentImageIndex ? 'bg-white' : 'bg-white/50'}`}></div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
                     </>
                 ) : (
-                    !imgError && product.imageUrls[0] ? (
-                        <img src={product.imageUrls[0]} alt="Vista previa" className="h-full w-full object-cover" onError={() => setImgError(true)} />
-                    ) : (
-                        <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Vista Previa</span></div>
-                    )
+                    <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Vista Previa</span></div>
                 )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">URLs de Imagen</label>
-              <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
-                {product.imageUrls.map((url, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <input type="text" value={url} onChange={(e) => handleImageUrlChange(index, e.target.value)} placeholder={`URL de Imagen ${index + 1}`} className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm" />
-                    <button type="button" onClick={() => removeImageUrlInput(index)} disabled={product.imageUrls.length <= 1} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50" aria-label="Eliminar URL"><Trash2 size={18} /></button>
-                  </div>
-                ))}
+              <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                <div className="flex space-x-2">
+                    {product.imageUrls.map((url, index) => (
+                      <div key={index} className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                        <input type="text" value={url} onChange={(e) => handleImageUrlChange(index, e.target.value)} placeholder={`URL ${index + 1}`} className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm" />
+                        <button type="button" onClick={() => removeImageUrlInput(index)} disabled={product.imageUrls.length <= 1} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50" aria-label="Eliminar URL"><Trash2 size={18} /></button>
+                      </div>
+                    ))}
+                </div>
               </div>
               <button type="button" onClick={addImageUrlInput} className="mt-2 flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300"><Plus size={16} />Añadir otra URL</button>
             </div>
@@ -213,7 +241,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
               const perItemPrice = (variant.price && variant.itemCount && variant.itemCount > 1) ? Math.round(variant.price / variant.itemCount) : 0;
               return (
                 <div key={variant.id} className="grid grid-cols-12 gap-x-3 gap-y-2 p-3 bg-gray-900/50 rounded-lg">
-                  <div className="col-span-12 sm:col-span-4">
+                  <div className="col-span-12 sm:col-span-3">
                     <label className="text-xs text-gray-400">Nombre Variante</label>
                     <input type="text" value={variant.name} onChange={(e) => handleVariantChange(index, 'name', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
                   </div>
@@ -221,8 +249,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                     <label className="text-xs text-gray-400">SKU</label>
                     <input type="text" value={variant.sku || ''} onChange={(e) => handleVariantChange(index, 'sku', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
                   </div>
-                  <div className="col-span-6 sm:col-span-2">
-                    <label className="text-xs text-gray-400">Cant. Items</label>
+                  <div className="col-span-6 sm:col-span-1">
+                    <label className="text-xs text-gray-400">Items</label>
                     <input type="number" value={variant.itemCount || 1} min="1" onChange={(e) => handleVariantChange(index, 'itemCount', e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded py-1 px-2 text-sm" />
                   </div>
                    <div className="col-span-6 sm:col-span-2">
@@ -232,6 +260,13 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                         <input type="number" value={variant.price || ''} onChange={(e) => handleVariantChange(index, 'price', e.target.value)} placeholder="0" className="w-full bg-gray-700 border-gray-600 rounded py-1 pl-6 pr-2 text-sm" />
                     </div>
                      {perItemPrice > 0 && <span className="text-xs text-green-400/80">(${perItemPrice.toLocaleString('es-CO')} c/u)</span>}
+                  </div>
+                   <div className="col-span-6 sm:col-span-2">
+                    <label className="text-xs text-gray-400">Costo</label>
+                    <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-400 text-sm">$</span>
+                        <input type="number" value={variant.cost || ''} onChange={(e) => handleVariantChange(index, 'cost', e.target.value)} placeholder="0" className="w-full bg-gray-700 border-gray-600 rounded py-1 pl-6 pr-2 text-sm" />
+                    </div>
                   </div>
                   <div className="col-span-6 sm:col-span-1">
                     <label className="text-xs text-gray-400">Stock</label>

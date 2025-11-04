@@ -1,6 +1,6 @@
 import { Product, Variant } from './types';
 
-const formatCurrency = (amount: number) => `$${amount.toLocaleString('es-CO')}`;
+export const formatCurrency = (amount: number) => `$${amount.toLocaleString('es-CO')}`;
 
 export const getSortPrice = (product: Product): number => {
   const prices = product.variants
@@ -12,6 +12,17 @@ export const getSortPrice = (product: Product): number => {
   }
   
   return Math.min(...prices);
+};
+
+export const productSortComparator = (a: Product, b: Product): number => {
+    const priceA = getSortPrice(a);
+    const priceB = getSortPrice(b);
+
+    if (priceA === -1 && priceB !== -1) return -1;
+    if (priceA !== -1 && priceB === -1) return 1;
+    if (priceA === -1 && priceB === -1) return a.title.localeCompare(b.title);
+
+    return priceA - priceB;
 };
 
 export const formatVariantPrice = (variant: Variant, options: { markdown?: boolean } = {}): string => {

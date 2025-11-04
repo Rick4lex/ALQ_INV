@@ -77,6 +77,48 @@
            border: 1px solid #e5e7eb !important;
         }
       }
+
+      /* Basic Tooltip Styles */
+      [data-tooltip-id="kpi-tooltip"] {
+        position: relative;
+        cursor: help;
+      }
+      [data-tooltip-id="kpi-tooltip"]::after {
+        content: attr(data-tooltip-content);
+        position: absolute;
+        bottom: 125%; /* Position above the icon */
+        right: 50%;
+        transform: translateX(50%);
+        background-color: #1f2937; /* bg-gray-800 */
+        color: #d1d5db; /* text-gray-300 */
+        border: 1px solid #4b5563; /* border-gray-600 */
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem; /* rounded-lg */
+        font-size: 0.75rem; /* text-xs */
+        line-height: 1.25;
+        white-space: pre-wrap;
+        width: max-content;
+        max-width: 250px;
+        text-align: center;
+        z-index: 10;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+        pointer-events: none;
+      }
+      [data-tooltip-id="kpi-tooltip"]:hover::after {
+        opacity: 1;
+        visibility: visible;
+      }
+      
+      .kpi-carousel::-webkit-scrollbar {
+        display: none;
+      }
+      .kpi-carousel {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
     </style>
 <script type="importmap">
 {

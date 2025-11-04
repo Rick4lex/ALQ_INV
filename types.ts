@@ -6,6 +6,16 @@ export interface Movement {
   change: number;
   newStock: number;
   notes?: string;
+  price?: number; // Price per item at the time of movement
+  cost?: number;  // Cost per item at the time of movement
+}
+
+export interface ManualMovement {
+  id: string;
+  timestamp: number;
+  type: 'Gasto' | 'Inversión' | 'Otro Ingreso';
+  amount: number; // Positive for income, negative for expense/investment
+  description: string;
 }
 
 export interface Variant {
@@ -13,6 +23,7 @@ export interface Variant {
   name: string;
   sku?: string;
   price?: number;
+  cost?: number;
   stock: number;
   itemCount?: number;
 }
@@ -46,4 +57,5 @@ export type ModalState =
   | { type: 'ignore'; product: Product }
   | { type: 'export'; format: 'json' | 'markdown' | 'catalog' }
   | { type: 'add-category' }
-  | { type: 'movements'; product: Product };
+  | { type: 'movements'; product: Product }
+  | { type: 'manual-movement' };

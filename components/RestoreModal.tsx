@@ -1,6 +1,6 @@
 import React, { useState, DragEvent } from 'react';
 import Modal from './Modal';
-import { LOCAL_STORAGE_KEYS } from '../constants';
+import { LOCAL_STORAGE_KEYS, DATA_VERSION } from '../constants';
 import { UploadCloud, FileJson, X } from 'lucide-react';
 
 interface RestoreModalProps {
@@ -72,7 +72,12 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
         localStorage.setItem(LOCAL_STORAGE_KEYS.PREFERENCES, JSON.stringify(backupData.preferences));
         localStorage.setItem(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, JSON.stringify(backupData.ignoredProductIds));
         localStorage.setItem(LOCAL_STORAGE_KEYS.CATEGORIES, JSON.stringify(backupData.categories));
-        localStorage.setItem(LOCAL_STORAGE_KEYS.MOVEMENTS, JSON.stringify(backupData.movements));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.MOVEMENTS, JSON.stringify(backupData.movements || {}));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.MANUAL_MOVEMENTS, JSON.stringify(backupData.manualMovements || []));
+        
+        // Set data version to latest to avoid re-running migrations
+        localStorage.setItem(LOCAL_STORAGE_KEYS.DATA_VERSION, String(DATA_VERSION));
+
 
         alert('¡Restauración completada con éxito! La aplicación se recargará.');
         window.location.reload();

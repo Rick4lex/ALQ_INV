@@ -124,7 +124,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
             markdown = Object.entries(groupedByHint)
                 .sort(([hintA], [hintB]) => hintA.localeCompare(hintB))
                 .filter(([hint]) => !omittedHints.includes(hint))
-                .map(([hint, productsInGroup]) => `\n*${hint}*\n${generateProductMarkdown(productsInGroup)}`)
+                // FIX: Explicitly type the arguments of the map function. `Object.entries`
+                // can sometimes produce `unknown` values, and this ensures TypeScript knows 
+                // `productsInGroup` is an array of Products.
+                .map(([hint, productsInGroup]: [string, Product[]]) => `\n*${hint}*\n${generateProductMarkdown(productsInGroup)}`)
                 .join('\n');
         }
         setContent(markdown.trim());
