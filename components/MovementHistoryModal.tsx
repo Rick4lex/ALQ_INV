@@ -20,6 +20,14 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
   const [change, setChange] = useState<number>(1);
   const [notes, setNotes] = useState('');
 
+  // FIX: This effect synchronizes the modal's state with the selected product.
+  // When the `product` prop changes (i.e., opening the modal for a different item),
+  // it resets the selected variant to the first one of the new product,
+  // preventing stale data from the previous product from being displayed.
+  useEffect(() => {
+    setSelectedVariantId(product.variants[0]?.id || '');
+  }, [product]);
+
   const selectedVariant = useMemo(() => {
     return product.variants.find(v => v.id === selectedVariantId);
   }, [product.variants, selectedVariantId]);
