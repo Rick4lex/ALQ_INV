@@ -92,7 +92,7 @@ export function useLocalStorage<T,>(key: string, initialValue: T): [T, React.Dis
 export const useAppStore = () => {
     const [products, setProducts] = useLocalStorage<Product[] | null>(LOCAL_STORAGE_KEYS.PRODUCTS, null);
     const [preferences, setPreferences] = useLocalStorage<UserPreferences>(LOCAL_STORAGE_KEYS.PREFERENCES, {
-        viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false,
+        viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false,
     });
     const [ignoredProductIds, setIgnoredProductIds] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, ['banner']);
     const [allCategories, setAllCategories] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);

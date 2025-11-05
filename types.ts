@@ -48,6 +48,7 @@ export interface UserPreferences {
   searchTerm: string;
   selectedCategory: string;
   showAvailableOnly: boolean;
+  showIgnoredOnly: boolean;
 }
 
 export type ModalState =

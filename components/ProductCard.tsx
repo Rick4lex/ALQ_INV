@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Product, ViewMode } from '../types';
-import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, History } from 'lucide-react';
+import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History } from 'lucide-react';
 import { formatPrice } from '../utils';
 
 interface ProductCardProps {
@@ -10,10 +10,12 @@ interface ProductCardProps {
   onDelete: (product: Product) => void;
   onImageClick: (imageUrls: string[]) => void;
   onIgnore: (product: Product) => void;
+  onRestore: (product: Product) => void;
   onMovement: (product: Product) => void;
+  isIgnoredView?: boolean;
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, onDelete, onImageClick, onIgnore, onMovement }) => {
+const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, onMovement, isIgnoredView = false }) => {
   const [imgError, setImgError] = useState(false);
 
   const totalStock = useMemo(() => {
@@ -25,7 +27,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
   }, [product]);
 
   const cardClasses = `
-    bg-gray-800/50 backdrop-blur-sm border border-purple-500/20 rounded-xl shadow-lg overflow-hidden transition-all duration-300 hover:shadow-purple-500/20 hover:border-purple-500/40
+    bg-gray-800/50 backdrop-blur-sm border rounded-xl shadow-lg overflow-hidden transition-all duration-300
+    ${isIgnoredView ? 'border-yellow-500/40 hover:shadow-yellow-500/20 hover:border-yellow-500/60' : 'border-purple-500/20 hover:shadow-purple-500/20 hover:border-purple-500/40'}
     ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row items-center'}
   `;
   const imageContainerClasses = viewMode === 'grid' ? 'w-full h-56' : 'w-28 h-28 flex-shrink-0';
@@ -86,14 +89,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
             >
               <History size={18} />
             </button>
-            <button
-              onClick={() => onIgnore(product)}
-              className="p-2 rounded-full text-gray-400 hover:bg-gray-500/20 transition-colors"
-              aria-label="Ocultar producto"
-              title="Ocultar producto"
-            >
-              <EyeOff size={18} />
-            </button>
+            {isIgnoredView ? (
+              <button
+                onClick={() => onRestore(product)}
+                className="p-2 rounded-full text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+                aria-label="Restaurar producto"
+                title="Restaurar producto"
+              >
+                <Eye size={18} />
+              </button>
+            ) : (
+              <button
+                onClick={() => onIgnore(product)}
+                className="p-2 rounded-full text-gray-400 hover:bg-gray-500/20 transition-colors"
+                aria-label="Ocultar producto"
+                title="Ocultar producto"
+              >
+                <EyeOff size={18} />
+              </button>
+            )}
             <button onClick={() => onEdit(product)} className="p-2 rounded-full text-blue-400 hover:bg-blue-500/20 transition-colors" title="Editar producto">
               <Pencil size={18} />
             </button>

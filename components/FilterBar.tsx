@@ -7,6 +7,8 @@ interface FilterBarProps {
   onSearchChange: (term: string) => void;
   showAvailableOnly: boolean;
   onAvailabilityChange: (show: boolean) => void;
+  showIgnoredOnly: boolean;
+  onIgnoredChange: (show: boolean) => void;
   selectedCategory: string;
   onCategoryChange: (category: string) => void;
   productCount: number;
@@ -18,6 +20,8 @@ const FilterBar: React.FC<FilterBarProps> = ({
   onSearchChange,
   showAvailableOnly,
   onAvailabilityChange,
+  showIgnoredOnly,
+  onIgnoredChange,
   selectedCategory,
   onCategoryChange,
   productCount,
@@ -27,7 +31,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
 
   return (
     <div className="sticky top-[73px] z-10 bg-gray-800/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-purple-500/20">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-center">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
           <input
@@ -39,11 +43,16 @@ const FilterBar: React.FC<FilterBarProps> = ({
           />
         </div>
 
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center justify-center md:justify-end gap-4 flex-wrap">
           <ToggleSwitch
             checked={showAvailableOnly}
             onChange={onAvailabilityChange}
             label="Solo Disponibles"
+          />
+          <ToggleSwitch
+            checked={showIgnoredOnly}
+            onChange={onIgnoredChange}
+            label="Ver Ocultos"
           />
           <span className="bg-purple-500 text-white text-xs font-bold px-2 py-1 rounded-full">{productCount}</span>
         </div>

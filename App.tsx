@@ -36,8 +36,15 @@ const App: React.FC = () => {
 
   const filteredProducts = useMemo(() => {
     if (!products) return [];
+    const showIgnored = !!preferences.showIgnoredOnly;
+    
     return products.filter(product => {
-      if (ignoredProductIds.includes(product.id)) return false;
+      const matchesIgnoredStatus = showIgnored
+        ? ignoredProductIds.includes(product.id)
+        : !ignoredProductIds.includes(product.id);
+      
+      if (!matchesIgnoredStatus) return false;
+
       const matchesSearch = (product.title || '').toLowerCase().includes(preferences.searchTerm.toLowerCase());
       const matchesCategory = preferences.selectedCategory === 'Todas' || product.category === preferences.selectedCategory;
       const matchesAvailability = !preferences.showAvailableOnly || product.variants.some(v => v.stock > 0);
@@ -57,7 +64,7 @@ const App: React.FC = () => {
   const handleReset = useCallback(() => {
     if (window.confirm('¿Estás seguro de que quieres borrar todos los datos? Esta acción es irreversible.')) {
       setProducts(null);
-      setPreferences({ viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false });
+      setPreferences({ viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false });
       setIgnoredProductIds(['banner']);
       setAllCategories(INITIAL_CATEGORIES);
       setMovements({});
@@ -69,6 +76,16 @@ const App: React.FC = () => {
   const updatePreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
     setPreferences(prev => ({ ...prev, [key]: value }));
   }, [setPreferences]);
+
+  const handleIgnoredChange = useCallback((show: boolean) => {
+    if (show) {
+      if (window.confirm('¿Estás seguro de que quieres mostrar los productos ocultos? Esta vista es para gestión y puede incluir items que no están a la venta.')) {
+        updatePreference('showIgnoredOnly', show);
+      }
+    } else {
+      updatePreference('showIgnoredOnly', show);
+    }
+  }, [updatePreference]);
 
   const handleProductDelete = useCallback((productId: string) => {
     setProducts(prev => prev?.filter(p => p.id !== productId) || []);
@@ -101,6 +118,12 @@ const App: React.FC = () => {
     setModal(null);
   }, [setIgnoredProductIds]);
   
+  const handleRestoreProduct = useCallback((productToRestore: Product) => {
+    if (window.confirm(`¿Seguro que quieres restaurar "${productToRestore.title}"? Volverá a ser visible en el catálogo principal.`)) {
+        setIgnoredProductIds(prev => prev.filter(id => id !== productToRestore.id));
+    }
+  }, [setIgnoredProductIds]);
+
   const handleCategorySave = useCallback((newCategory: string) => {
     const formatted = newCategory.trim().toLowerCase().replace(/\s+/g, '-');
     if (formatted && !allCategories.includes(formatted)) {
@@ -171,8 +194,26 @@ const App: React.FC = () => {
         <main>
            {currentView === 'catalog' ? (
             <div className="container mx-auto px-4 py-6">
-              <FilterBar {...preferences} onSearchChange={term => updatePreference('searchTerm', term)} onAvailabilityChange={show => updatePreference('showAvailableOnly', show)} onCategoryChange={cat => updatePreference('selectedCategory', cat)} productCount={filteredProducts.length} categories={allCategories} />
-              <ProductDisplay products={filteredProducts} viewMode={preferences.viewMode} onEdit={product => setModal({ type: 'edit', product })} onDelete={product => setModal({ type: 'delete', product })} onImageClick={handleImageClick} onIgnore={product => setModal({ type: 'ignore', product })} onMovement={product => setModal({ type: 'movements', product })} />
+              <FilterBar 
+                {...preferences} 
+                showIgnoredOnly={!!preferences.showIgnoredOnly}
+                onSearchChange={term => updatePreference('searchTerm', term)} 
+                onAvailabilityChange={show => updatePreference('showAvailableOnly', show)}
+                onIgnoredChange={handleIgnoredChange}
+                onCategoryChange={cat => updatePreference('selectedCategory', cat)} 
+                productCount={filteredProducts.length} 
+                categories={allCategories} />
+              <ProductDisplay 
+                products={filteredProducts} 
+                viewMode={preferences.viewMode} 
+                onEdit={product => setModal({ type: 'edit', product })} 
+                onDelete={product => setModal({ type: 'delete', product })} 
+                onImageClick={handleImageClick} 
+                onIgnore={product => setModal({ type: 'ignore', product })} 
+                onRestore={handleRestoreProduct}
+                onMovement={product => setModal({ type: 'movements', product })}
+                isIgnoredView={!!preferences.showIgnoredOnly}
+              />
             </div>
            ) : (
              <FinancialPanel onBack={() => setCurrentView('catalog')} products={products} movements={movements} manualMovements={manualMovements} onAddManualMovement={() => setModal({ type: 'manual-movement' })} />

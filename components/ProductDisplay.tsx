@@ -9,10 +9,12 @@ interface ProductDisplayProps {
   onDelete: (product: Product) => void;
   onImageClick: (imageUrls: string[]) => void;
   onIgnore: (product: Product) => void;
+  onRestore: (product: Product) => void;
   onMovement: (product: Product) => void;
+  isIgnoredView: boolean;
 }
 
-const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onEdit, onDelete, onImageClick, onIgnore, onMovement }) => {
+const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, onMovement, isIgnoredView }) => {
   if (products.length === 0) {
     return <div className="text-center py-10 text-gray-400">No se encontraron productos que coincidan con los filtros.</div>;
   }
@@ -32,7 +34,9 @@ const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onE
           onDelete={onDelete}
           onImageClick={onImageClick}
           onIgnore={onIgnore}
+          onRestore={onRestore}
           onMovement={onMovement}
+          isIgnoredView={isIgnoredView}
         />
       ))}
     </div>
