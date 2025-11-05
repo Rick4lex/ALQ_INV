@@ -1,6 +1,6 @@
 import React from 'react';
 import ToggleSwitch from './ToggleSwitch';
-import { Search } from 'lucide-react';
+import { Search, X, Check } from 'lucide-react';
 
 interface FilterBarProps {
   searchTerm: string;
@@ -13,24 +13,41 @@ interface FilterBarProps {
   onCategoryChange: (category: string) => void;
   productCount: number;
   categories: string[];
+  isFusionMode: boolean;
+  selectedForFusionCount: number;
+  onCancelFusion: () => void;
+  onStartFusion: () => void;
 }
 
 const FilterBar: React.FC<FilterBarProps> = ({
-  searchTerm,
-  onSearchChange,
-  showAvailableOnly,
-  onAvailabilityChange,
-  showIgnoredOnly,
-  onIgnoredChange,
-  selectedCategory,
-  onCategoryChange,
-  productCount,
-  categories
+  searchTerm, onSearchChange,
+  showAvailableOnly, onAvailabilityChange,
+  showIgnoredOnly, onIgnoredChange,
+  selectedCategory, onCategoryChange,
+  productCount, categories,
+  isFusionMode, selectedForFusionCount, onCancelFusion, onStartFusion,
 }) => {
   const allFilterCategories = ['Todas', ...categories];
 
+  if (isFusionMode) {
+    return (
+      <div className="sticky top-[89px] z-10 bg-yellow-900/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-yellow-500/40 text-center">
+          <h3 className="text-lg font-bold text-yellow-300">Modo Fusión Activo</h3>
+          <p className="text-yellow-400 mb-4">Selecciona dos productos del catálogo para combinarlos.</p>
+          <div className="flex justify-center items-center gap-4">
+              <button onClick={onCancelFusion} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg">
+                <X size={18} /> Cancelar
+              </button>
+              <button onClick={onStartFusion} disabled={selectedForFusionCount !== 2} className="flex items-center gap-2 bg-brand-green hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                <Check size={18} /> Fusionar {selectedForFusionCount > 0 ? `${selectedForFusionCount}` : ''}/2 Productos
+              </button>
+          </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="sticky top-[73px] z-10 bg-gray-800/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-purple-500/20">
+    <div className="sticky top-[89px] z-10 bg-gray-800/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-purple-500/20">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />

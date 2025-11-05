@@ -51,12 +51,23 @@ export interface UserPreferences {
   showIgnoredOnly: boolean;
 }
 
+export interface AuditEntry {
+  id: string;
+  timestamp: number;
+  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair';
+  message: string;
+}
+
 export type ModalState =
   | { type: 'add' }
   | { type: 'edit'; product: Product }
   | { type: 'delete'; product: Product }
   | { type: 'ignore'; product: Product }
-  | { type: 'export'; format: 'json' | 'markdown' | 'catalog' }
+  | { type: 'export'; format: 'json' | 'markdown' | 'catalog' | 'csv' }
   | { type: 'add-category' }
   | { type: 'movements'; product: Product }
-  | { type: 'manual-movement' };
+  | { type: 'manual-movement' }
+  | { type: 'import-history' }
+  | { type: 'tools' }
+  | { type: 'fusion'; products: [Product, Product] }
+  | { type: 'audit-log' };

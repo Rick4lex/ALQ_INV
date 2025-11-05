@@ -86,3 +86,41 @@ export const transformProductForExport = (product: Product): any => {
     
     return finalProduct;
 };
+
+const escapeCsv = (val: any): string => {
+  if (val === null || val === undefined) return '';
+  let str = String(val);
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    str = `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+export const generateCsvContent = (products: Product[]): string => {
+  const headers = [
+    'product_id', 'product_title', 'category', 'description', 'details', 
+    'image_urls', 'image_hints', 'variant_id', 'variant_name', 'variant_sku', 
+    'variant_price', 'variant_cost', 'variant_stock', 'variant_item_count'
+  ];
+
+  const rows = products.flatMap(p => 
+    p.variants.map(v => [
+      p.id,
+      p.title,
+      p.category,
+      p.description,
+      p.details,
+      p.imageUrls.join(', '),
+      (p.imageHint || []).join(', '),
+      v.id,
+      v.name,
+      v.sku,
+      v.price,
+      v.cost,
+      v.stock,
+      v.itemCount
+    ].map(escapeCsv))
+  );
+
+  return [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+};

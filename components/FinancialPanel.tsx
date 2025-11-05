@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Product, Movements, Movement, ManualMovement } from '../types';
 import { useFinancialSummary } from '../hooks/useLocalStorage';
-import { ArrowLeft, BarChart2, DollarSign, Package, TrendingUp, PieChart, Info, Minus, Plus, ArrowRight, FilePlus } from 'lucide-react';
+import { ArrowLeft, BarChart2, DollarSign, Package, TrendingUp, PieChart, Info, Minus, Plus, ArrowRight, FilePlus, Upload, Sheet } from 'lucide-react';
 import { formatCurrency } from '../utils';
 
 interface FinancialPanelProps {
@@ -10,6 +10,8 @@ interface FinancialPanelProps {
   movements: Movements;
   manualMovements: ManualMovement[];
   onAddManualMovement: () => void;
+  onImportHistory: () => void;
+  onExportCsv: () => void;
 }
 
 const KPICard: React.FC<{ title: string; value: string; icon: React.ReactNode; tooltip: string; }> = ({ title, value, icon, tooltip }) => (
@@ -27,18 +29,12 @@ const KPICard: React.FC<{ title: string; value: string; icon: React.ReactNode; t
   </div>
 );
 
-const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movements, manualMovements, onAddManualMovement }) => {
+const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movements, manualMovements, onAddManualMovement, onImportHistory, onExportCsv }) => {
     const [dateRange, setDateRange] = useState('thisMonth');
     const [customStart, setCustomStart] = useState('');
     const [customEnd, setCustomEnd] = useState('');
 
     const financialData = useFinancialSummary(movements, manualMovements, products, dateRange, customStart, customEnd);
-    
-    const variantMap = useMemo(() => {
-        const map = new Map<string, { product: Product, variant: Product['variants'][0] }>();
-        products.forEach(p => p.variants.forEach(v => map.set(v.id, { product: p, variant: v })));
-        return map;
-    }, [products]);
 
     const movementTypeConfig = {
         'Venta': { icon: <Minus size={16}/>, color: 'bg-red-500/80' },
@@ -54,8 +50,10 @@ const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movem
         <div>
             <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
                 <div className="container mx-auto flex items-center justify-between gap-4">
-                    <h1 className="text-2xl font-bold">Panel Financiero</h1>
-                    <button onClick={onBack} className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><ArrowLeft size={18} /><span>Volver al Catálogo</span></button>
+                    <div className="flex items-center gap-4">
+                        <button onClick={onBack} className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><ArrowLeft size={18} /><span>Volver</span></button>
+                        <h1 className="text-xl md:text-2xl font-bold">Panel Financiero</h1>
+                    </div>
                 </div>
             </header>
             
@@ -75,7 +73,11 @@ const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movem
                             </div>
                         )}
                     </div>
-                    <button onClick={onAddManualMovement} className="flex items-center gap-2 bg-brand-green hover:bg-green-600 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><FilePlus size={18} /><span>Registrar Gasto/Ingreso</span></button>
+                     <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <button onClick={onImportHistory} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><Upload size={18} /><span>Importar Historial</span></button>
+                        <button onClick={onExportCsv} className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><Sheet size={18} /><span>Exportar CSV</span></button>
+                        <button onClick={onAddManualMovement} className="flex items-center gap-2 bg-brand-green hover:bg-green-600 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><FilePlus size={18} /><span>Registrar Gasto/Ingreso</span></button>
+                    </div>
                 </div>
 
                 <div className="lg:grid lg:grid-cols-5 lg:gap-4 mb-6">
@@ -115,21 +117,29 @@ const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movem
                     <div className="max-h-[500px] overflow-y-auto pr-2">
                         {financialData.detailedMovements.length > 0 ? (
                         <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-gray-400 uppercase bg-gray-900/50 sticky top-0"><tr><th scope="col" className="px-4 py-3">Fecha</th><th scope="col" className="px-4 py-3">Descripción</th><th scope="col" className="px-4 py-3">Tipo</th><th scope="col" className="px-4 py-3 text-center">Cambio Stock</th><th scope="col" className="px-4 py-3 text-right">Monto</th></tr></thead>
+                            <thead className="text-xs text-gray-400 uppercase bg-gray-900/50 sticky top-0">
+                                <tr>
+                                    <th scope="col" className="px-4 py-3">Fecha</th>
+                                    <th scope="col" className="px-4 py-3">Producto</th>
+                                    <th scope="col" className="px-4 py-3">Variante</th>
+                                    <th scope="col" className="px-4 py-3">Tipo</th>
+                                    <th scope="col" className="px-4 py-3 text-center">Cambio Stock</th>
+                                    <th scope="col" className="px-4 py-3 text-right">Monto</th>
+                                </tr>
+                            </thead>
                             <tbody>
-                                {(financialData.detailedMovements as (Movement | ManualMovement)[]).map(m => {
+                                {financialData.detailedMovements.map(m => {
                                     const isManual = !('variantId' in m);
-                                    const variantInfo = !isManual ? variantMap.get(m.variantId) : null;
-                                    const description = isManual ? m.description : `${variantInfo?.product.title} (${variantInfo?.variant.name})`;
-                                    const amount = isManual ? m.amount : (m.type === 'Venta' ? (m.price || 0) * Math.abs(m.change) : 0);
-                                    const stockChange = isManual ? '-' : (m.change > 0 ? `+${m.change}`: m.change);
+                                    const amount = isManual ? (m as ManualMovement).amount : (m.type === 'Venta' ? ((m as Movement).price || 0) * Math.abs((m as Movement).change) : 0);
+                                    const stockChange = isManual ? '-' : ((m as Movement).change > 0 ? `+${(m as Movement).change}`: (m as Movement).change);
                                     
                                     return (
                                     <tr key={m.id} className="border-b border-gray-700 hover:bg-gray-900/30">
                                         <td className="px-4 py-2 text-gray-400 whitespace-nowrap">{new Date(m.timestamp).toLocaleDateString('es-CO')}</td>
-                                        <td className="px-4 py-2 font-medium">{description}</td>
+                                        <td className="px-4 py-2 font-medium">{isManual ? (m as ManualMovement).description : (m as any).productTitle}</td>
+                                        <td className="px-4 py-2 text-gray-300">{isManual ? '-' : (m as any).variantName}</td>
                                         <td className="px-4 py-2"><span className={`px-2 py-1 text-xs rounded-full text-white ${movementTypeConfig[m.type as keyof typeof movementTypeConfig]?.color || 'bg-gray-500'}`}>{m.type}</span></td>
-                                        <td className={`px-4 py-2 font-bold text-center ${isManual ? '' : (m.change > 0 ? 'text-green-400' : 'text-red-400')}`}>{stockChange}</td>
+                                        <td className={`px-4 py-2 font-bold text-center ${isManual ? '' : ((m as Movement).change > 0 ? 'text-green-400' : 'text-red-400')}`}>{stockChange}</td>
                                         <td className={`px-4 py-2 text-right font-semibold ${amount > 0 ? 'text-green-400' : (amount < 0 ? 'text-red-400' : 'text-gray-500')}`}>{amount !== 0 ? formatCurrency(amount) : '-'}</td>
                                     </tr>
                                     )

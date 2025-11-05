@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Product, Variant } from '../types';
 import Modal from './Modal';
-import { EMPTY_PRODUCT, EMPTY_VARIANT } from '../constants';
+import { createEmptyProduct, EMPTY_VARIANT } from '../constants';
 import { ImageOff, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ProductFormModalProps {
@@ -13,7 +13,7 @@ interface ProductFormModalProps {
 }
 
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, onSave, productToEdit, categories }) => {
-  const [product, setProduct] = useState<Omit<Product, 'id'> & { id?: string }>(EMPTY_PRODUCT);
+  const [product, setProduct] = useState<Omit<Product, 'id'> & { id?: string }>(createEmptyProduct());
   const [imgError, setImgError] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const touchStartX = useRef(0);
@@ -27,7 +27,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         imageHint: productToEdit.imageHint || [],
       });
     } else {
-      setProduct({ ...EMPTY_PRODUCT, category: categories[0] || '' });
+      const newEmptyProduct = createEmptyProduct();
+      setProduct({ ...newEmptyProduct, category: categories[0] || '' });
     }
     setImgError(false);
     setCurrentImageIndex(0);

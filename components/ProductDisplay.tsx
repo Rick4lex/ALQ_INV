@@ -12,11 +12,20 @@ interface ProductDisplayProps {
   onRestore: (product: Product) => void;
   onMovement: (product: Product) => void;
   isIgnoredView: boolean;
+  isFusionMode: boolean;
+  selectedForFusion: string[];
+  onSelectForFusion: (productId: string) => void;
 }
 
-const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, onMovement, isIgnoredView }) => {
+const ProductDisplay: React.FC<ProductDisplayProps> = ({ 
+  products, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, 
+  onMovement, isIgnoredView, isFusionMode, selectedForFusion, onSelectForFusion 
+}) => {
   if (products.length === 0) {
-    return <div className="text-center py-10 text-gray-400">No se encontraron productos que coincidan con los filtros.</div>;
+    const message = isFusionMode 
+      ? "No hay productos para fusionar."
+      : "No se encontraron productos que coincidan con los filtros.";
+    return <div className="text-center py-10 text-gray-400">{message}</div>;
   }
   
   const containerClasses = viewMode === 'grid'
@@ -37,6 +46,9 @@ const ProductDisplay: React.FC<ProductDisplayProps> = ({ products, viewMode, onE
           onRestore={onRestore}
           onMovement={onMovement}
           isIgnoredView={isIgnoredView}
+          isFusionMode={isFusionMode}
+          isSelectedForFusion={selectedForFusion.includes(product.id)}
+          onSelectForFusion={onSelectForFusion}
         />
       ))}
     </div>

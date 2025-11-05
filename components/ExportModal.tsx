@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Product } from '../types';
 import Modal from './Modal';
-import { Copy, Check, Printer, Filter, ChevronDown } from 'lucide-react';
+import { Copy, Check, Printer, Filter, ChevronDown, Download } from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { LOCAL_STORAGE_KEYS } from '../constants';
-import { formatPrice, transformProductForExport, formatVariantPrice, getSortPrice } from '../utils';
+import { formatPrice, transformProductForExport, formatVariantPrice, getSortPrice, generateCsvContent } from '../utils';
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  format: 'json' | 'markdown' | 'catalog';
+  format: 'json' | 'markdown' | 'catalog' | 'csv';
   products: Product[];
   ignoredProductIds: string[];
 }
@@ -19,6 +19,7 @@ const titles = {
   json: 'Exportar a JSON',
   markdown: 'Exportar a Markdown',
   catalog: 'Vista Previa del Catálogo',
+  csv: 'Exportar a CSV / Excel',
 };
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, products, ignoredProductIds }) => {
@@ -52,6 +53,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
     }
     return baseProducts;
   }, [products, ignoredProductIds, format, markdownSelectedHint, catalogSelectedHints]);
+
+  const nonIgnoredProducts = useMemo(() => {
+    return products.filter(p => !ignoredProductIds.includes(p.id));
+  }, [products, ignoredProductIds]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -131,8 +136,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
                 .join('\n');
         }
         setContent(markdown.trim());
+    } else if (format === 'csv') {
+        setContent(generateCsvContent(nonIgnoredProducts));
     }
-  }, [isOpen, format, products, filteredProducts, ignoredProductIds, markdownSelectedHint, omittedHints]);
+  }, [isOpen, format, products, filteredProducts, ignoredProductIds, markdownSelectedHint, omittedHints, nonIgnoredProducts]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(content).then(() => {
@@ -142,6 +149,17 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
   }, [content]);
 
   const handlePrint = () => window.print();
+  
+  const handleDownload = () => {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alquima-mizu-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    a.remove();
+  };
 
   const handleOmitHintToggle = (hint: string) => setOmittedHints(prev => prev.includes(hint) ? prev.filter(h => h !== hint) : [...prev, hint]);
   
@@ -149,93 +167,107 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
   const showMarkdownHintFilter = format === 'markdown' && allHints.length > 0;
   const showCatalogHintFilter = format === 'catalog' && allHints.length > 0;
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={titles[format]} size={format === 'catalog' ? 'full' : 'lg'}>
-      {format === 'catalog' ? (
-        <div className="bg-gray-700 w-full h-full overflow-auto p-4 md:p-8">
-          <div className="no-print mx-auto max-w-4xl mb-4 space-y-4">
-              <button onClick={handlePrint} className="flex items-center justify-center gap-2 w-full bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
-                <Printer size={18} />
-                <span>Imprimir / Guardar como PDF</span>
-              </button>
-              <div className="md:hidden p-3 text-center text-xs bg-yellow-900/50 text-yellow-300 rounded-lg border border-yellow-700">
-                Para una mejor experiencia de impresión, por favor usa una computadora. En móvil, puedes intentar usar la función de 'captura de pantalla con desplazamiento' de tu dispositivo.
-              </div>
-            {showCatalogHintFilter && (
-                <details className="p-3 bg-gray-800/50 rounded-lg border border-gray-600" open>
-                    <summary className="cursor-pointer font-medium text-gray-300 flex items-center gap-2">
-                        <Filter size={16} />
-                        Filtrar por Serie (selección múltiple)
-                    </summary>
-                    <div className="mt-4 flex items-center gap-4 text-sm">
-                        <button onClick={() => setCatalogSelectedHints(allHints)} className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded">Todos</button>
-                        <button onClick={() => setCatalogSelectedHints([])} className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded">Ninguno</button>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-40 overflow-y-auto">
-                        {allHints.map(hint => (
-                            <label key={hint} className="flex items-center gap-2 text-sm p-1 rounded hover:bg-gray-700/50 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={catalogSelectedHints.includes(hint)}
-                                    onChange={() => handleCatalogHintToggle(hint)}
-                                    className="form-checkbox h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600"
-                                />
-                                {hint}
-                            </label>
-                        ))}
-                    </div>
-                </details>
-            )}
-          </div>
-          <div id="catalog-to-print" className="bg-white text-black p-8 md:p-12 rounded-lg shadow-2xl max-w-4xl mx-auto my-8">
-            <CatalogPreview products={filteredProducts} />
-          </div>
-        </div>
-      ) : (
-        <div className="p-6">
-          {showMarkdownHintFilter && (
-            <div className="no-print mb-4 p-3 bg-gray-700/50 rounded-lg border border-gray-600">
-              <label htmlFor="hint-filter" className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-                <Filter size={16} />
-                Filtrar por Serie (imageHint)
-              </label>
-              <select
-                id="hint-filter"
-                value={markdownSelectedHint}
-                onChange={(e) => setMarkdownSelectedHint(e.target.value)}
-                className="block w-full bg-gray-900 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-              >
-                {['Todas', ...allHints].map(hint => (
-                  <option key={hint} value={hint}>{hint}</option>
-                ))}
-              </select>
+  
+  const renderContent = () => {
+    switch (format) {
+      case 'catalog':
+        return (
+          <div className="bg-gray-700 w-full h-full overflow-auto p-4 md:p-8">
+            <div className="no-print mx-auto max-w-4xl mb-4 space-y-4">
+                <button onClick={handlePrint} className="flex items-center justify-center gap-2 w-full bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
+                  <Printer size={18} />
+                  <span>Imprimir / Guardar como PDF</span>
+                </button>
+                <div className="md:hidden p-3 text-center text-xs bg-yellow-900/50 text-yellow-300 rounded-lg border border-yellow-700">
+                  Para una mejor experiencia de impresión, por favor usa una computadora. En móvil, puedes intentar usar la función de 'captura de pantalla con desplazamiento' de tu dispositivo.
+                </div>
+              {showCatalogHintFilter && (
+                  <details className="p-3 bg-gray-800/50 rounded-lg border border-gray-600" open>
+                      <summary className="cursor-pointer font-medium text-gray-300 flex items-center gap-2">
+                          <Filter size={16} />
+                          Filtrar por Serie (selección múltiple)
+                      </summary>
+                      <div className="mt-4 flex items-center gap-4 text-sm">
+                          <button onClick={() => setCatalogSelectedHints(allHints)} className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded">Todos</button>
+                          <button onClick={() => setCatalogSelectedHints([])} className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded">Ninguno</button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-40 overflow-y-auto">
+                          {allHints.map(hint => (
+                              <label key={hint} className="flex items-center gap-2 text-sm p-1 rounded hover:bg-gray-700/50 cursor-pointer">
+                                  <input
+                                      type="checkbox"
+                                      checked={catalogSelectedHints.includes(hint)}
+                                      onChange={() => handleCatalogHintToggle(hint)}
+                                      className="form-checkbox h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600"
+                                  />
+                                  {hint}
+                              </label>
+                          ))}
+                      </div>
+                  </details>
+              )}
             </div>
-          )}
-          {format === 'markdown' && markdownSelectedHint === 'Todas' && allHints.length > 1 && (
-            <details className="no-print mb-4 text-sm">
-                <summary className="cursor-pointer text-gray-400 hover:text-white flex items-center gap-1">
-                    <ChevronDown size={16} className="transition-transform transform details-open:rotate-180" />
-                    Omitir Series del Markdown
-                </summary>
-                <div className="mt-2 p-3 bg-gray-700/50 rounded-lg border border-gray-600 max-h-32 overflow-y-auto">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {allHints.map(hint => (
-                    <label key={hint} className="flex items-center gap-2 text-xs">
-                        <input
-                        type="checkbox"
-                        checked={omittedHints.includes(hint)}
-                        onChange={() => handleOmitHintToggle(hint)}
-                        className="form-checkbox h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600"
-                        />
-                        {hint}
-                    </label>
-                    ))}
-                </div>
-                </div>
-            </details>
-          )}
+            <div id="catalog-to-print" className="bg-white text-black p-8 md:p-12 rounded-lg shadow-2xl max-w-4xl mx-auto my-8">
+              <CatalogPreview products={filteredProducts} />
+            </div>
+          </div>
+        );
+      case 'csv':
+        return (
+          <div className="p-6 text-center">
+            <p className="mb-6 text-gray-300">
+              Se generará un archivo CSV con todos los productos y sus variantes. Este archivo es compatible con Excel, Google Sheets y otras hojas de cálculo.
+            </p>
+            <button onClick={handleDownload} className="flex items-center justify-center gap-3 w-full max-w-xs mx-auto bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 shadow-lg">
+                <Download size={20} />
+                Descargar Archivo .csv
+            </button>
+          </div>
+        );
+      default: // json, markdown
+        return (
           <div className="p-6">
+            {showMarkdownHintFilter && (
+              <div className="no-print mb-4 p-3 bg-gray-700/50 rounded-lg border border-gray-600">
+                <label htmlFor="hint-filter" className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                  <Filter size={16} />
+                  Filtrar por Serie (imageHint)
+                </label>
+                <select
+                  id="hint-filter"
+                  value={markdownSelectedHint}
+                  onChange={(e) => setMarkdownSelectedHint(e.target.value)}
+                  className="block w-full bg-gray-900 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                >
+                  {['Todas', ...allHints].map(hint => (
+                    <option key={hint} value={hint}>{hint}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {format === 'markdown' && markdownSelectedHint === 'Todas' && allHints.length > 1 && (
+              <details className="no-print mb-4 text-sm">
+                  <summary className="cursor-pointer text-gray-400 hover:text-white flex items-center gap-1">
+                      <ChevronDown size={16} className="transition-transform transform details-open:rotate-180" />
+                      Omitir Series del Markdown
+                  </summary>
+                  <div className="mt-2 p-3 bg-gray-700/50 rounded-lg border border-gray-600 max-h-32 overflow-y-auto">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {allHints.map(hint => (
+                      <label key={hint} className="flex items-center gap-2 text-xs">
+                          <input
+                          type="checkbox"
+                          checked={omittedHints.includes(hint)}
+                          onChange={() => handleOmitHintToggle(hint)}
+                          className="form-checkbox h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600"
+                          />
+                          {hint}
+                      </label>
+                      ))}
+                  </div>
+                  </div>
+              </details>
+            )}
             <div className="relative">
               <pre className="bg-gray-900 text-sm p-4 rounded-lg overflow-auto max-h-96 border border-gray-700">
                 <code>{content}</code>
@@ -251,8 +283,13 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
               {format === 'json' ? 'Listo para pegar en placeholder-images.json' : 'Formato optimizado para WhatsApp/Instagram.'}
             </p>
           </div>
-        </div>
-      )}
+        );
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={titles[format]} size={format === 'catalog' ? 'full' : 'lg'}>
+      {renderContent()}
     </Modal>
   );
 };

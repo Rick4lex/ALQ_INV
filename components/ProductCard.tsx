@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Product, ViewMode } from '../types';
-import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History } from 'lucide-react';
+import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History, CheckCircle } from 'lucide-react';
 import { formatPrice } from '../utils';
 
 interface ProductCardProps {
@@ -13,9 +13,15 @@ interface ProductCardProps {
   onRestore: (product: Product) => void;
   onMovement: (product: Product) => void;
   isIgnoredView?: boolean;
+  isFusionMode?: boolean;
+  isSelectedForFusion?: boolean;
+  onSelectForFusion?: (productId: string) => void;
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, onMovement, isIgnoredView = false }) => {
+const ProductCard: React.FC<ProductCardProps> = ({ 
+  product, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, onMovement, 
+  isIgnoredView = false, isFusionMode = false, isSelectedForFusion = false, onSelectForFusion 
+}) => {
   const [imgError, setImgError] = useState(false);
 
   const totalStock = useMemo(() => {
@@ -27,8 +33,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
   }, [product]);
 
   const cardClasses = `
-    bg-gray-800/50 backdrop-blur-sm border rounded-xl shadow-lg overflow-hidden transition-all duration-300
-    ${isIgnoredView ? 'border-yellow-500/40 hover:shadow-yellow-500/20 hover:border-yellow-500/60' : 'border-purple-500/20 hover:shadow-purple-500/20 hover:border-purple-500/40'}
+    bg-gray-800/50 backdrop-blur-sm border rounded-xl shadow-lg overflow-hidden transition-all duration-300 relative
+    ${isFusionMode ? 'cursor-pointer' : ''}
+    ${isSelectedForFusion ? 'border-green-500/80 ring-2 ring-green-500/50 shadow-green-500/30' : 
+      isIgnoredView ? 'border-yellow-500/40 hover:shadow-yellow-500/20 hover:border-yellow-500/60' : 
+      'border-purple-500/20 hover:shadow-purple-500/20 hover:border-purple-500/40'
+    }
     ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row items-center'}
   `;
   const imageContainerClasses = viewMode === 'grid' ? 'w-full h-56' : 'w-28 h-28 flex-shrink-0';
@@ -44,18 +54,34 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
     return 'bg-brand-red';
   };
 
+  const handleCardClick = () => {
+    if (isFusionMode && onSelectForFusion) {
+      onSelectForFusion(product.id);
+    }
+  };
+
   return (
-    <div className={cardClasses}>
+    <div className={cardClasses} onClick={handleCardClick}>
+       {isSelectedForFusion && (
+        <div className="absolute top-2 right-2 z-10 bg-green-600 text-white rounded-full p-1">
+          <CheckCircle size={20} />
+        </div>
+      )}
       <div 
-        className={`${imageContainerClasses} relative bg-gray-700 ${hasImage ? 'cursor-pointer group' : ''}`}
-        onClick={() => hasImage && onImageClick(product.imageUrls)}
+        className={`${imageContainerClasses} relative bg-gray-700 ${hasImage && !isFusionMode ? 'cursor-pointer group' : ''}`}
+        onClick={(e) => {
+          if (hasImage && !isFusionMode) {
+            e.stopPropagation();
+            onImageClick(product.imageUrls);
+          }
+        }}
       >
         {hasImage ? (
           <img src={product.imageUrls[0]} alt={product.title} className="w-full h-full object-cover" onError={handleImageError} />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-500"><ImageOff size={48} /></div>
         )}
-        {hasImage && (
+        {hasImage && !isFusionMode && (
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
             <ZoomIn className="text-white" size={48} />
           </div>
@@ -75,47 +101,49 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode, onEdit, on
           {viewMode === 'grid' && <p className="text-sm text-gray-300 mt-2 line-clamp-2">{product.details || product.description}</p>}
         </div>
         
-        <div className={`${viewMode === 'grid' ? 'mt-4 pt-4 border-t' : 'mt-2 pt-2 border-t'} border-gray-700 flex flex-wrap items-center justify-end ${viewMode === 'grid' ? 'gap-x-4 gap-y-2' : 'gap-2'}`}>
-          <div className={`flex items-center gap-2 ${viewMode === 'grid' ? 'mr-auto' : ''}`}>
-             <span className="text-sm font-medium text-gray-300 whitespace-nowrap">Stock Total:</span>
-             <span className="font-bold text-lg w-8 text-center">{totalStock}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onMovement(product)}
-              className="p-2 rounded-full text-green-400 hover:bg-green-500/20 transition-colors"
-              aria-label="Historial de movimientos"
-              title="Historial de movimientos"
-            >
-              <History size={18} />
-            </button>
-            {isIgnoredView ? (
+        {!isFusionMode && (
+          <div className={`${viewMode === 'grid' ? 'mt-4 pt-4 border-t' : 'mt-2 pt-2 border-t'} border-gray-700 flex flex-wrap items-center justify-end ${viewMode === 'grid' ? 'gap-x-4 gap-y-2' : 'gap-2'}`}>
+            <div className={`flex items-center gap-2 ${viewMode === 'grid' ? 'mr-auto' : ''}`}>
+               <span className="text-sm font-medium text-gray-300 whitespace-nowrap">Stock Total:</span>
+               <span className="font-bold text-lg w-8 text-center">{totalStock}</span>
+            </div>
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => onRestore(product)}
-                className="p-2 rounded-full text-yellow-400 hover:bg-yellow-500/20 transition-colors"
-                aria-label="Restaurar producto"
-                title="Restaurar producto"
+                onClick={(e) => { e.stopPropagation(); onMovement(product); }}
+                className="p-2 rounded-full text-green-400 hover:bg-green-500/20 transition-colors"
+                aria-label="Historial de movimientos"
+                title="Historial de movimientos"
               >
-                <Eye size={18} />
+                <History size={18} />
               </button>
-            ) : (
-              <button
-                onClick={() => onIgnore(product)}
-                className="p-2 rounded-full text-gray-400 hover:bg-gray-500/20 transition-colors"
-                aria-label="Ocultar producto"
-                title="Ocultar producto"
-              >
-                <EyeOff size={18} />
+              {isIgnoredView ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRestore(product); }}
+                  className="p-2 rounded-full text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+                  aria-label="Restaurar producto"
+                  title="Restaurar producto"
+                >
+                  <Eye size={18} />
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onIgnore(product); }}
+                  className="p-2 rounded-full text-gray-400 hover:bg-gray-500/20 transition-colors"
+                  aria-label="Ocultar producto"
+                  title="Ocultar producto"
+                >
+                  <EyeOff size={18} />
+                </button>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); onEdit(product); }} className="p-2 rounded-full text-blue-400 hover:bg-blue-500/20 transition-colors" title="Editar producto">
+                <Pencil size={18} />
               </button>
-            )}
-            <button onClick={() => onEdit(product)} className="p-2 rounded-full text-blue-400 hover:bg-blue-500/20 transition-colors" title="Editar producto">
-              <Pencil size={18} />
-            </button>
-            <button onClick={() => onDelete(product)} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 transition-colors" title="Eliminar producto">
-              <Trash2 size={18} />
-            </button>
+              <button onClick={(e) => { e.stopPropagation(); onDelete(product); }} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 transition-colors" title="Eliminar producto">
+                <Trash2 size={18} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

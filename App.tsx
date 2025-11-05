@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Product, UserPreferences, ModalState, Movement, ManualMovement } from './types';
+import { Product, UserPreferences, ModalState, Movement, ManualMovement, Variant, AuditEntry } from './types';
 import { LOCAL_STORAGE_KEYS, INITIAL_CATEGORIES } from './constants';
 import { useAppStore } from './hooks/useLocalStorage';
 import JsonLoader from './components/JsonLoader';
@@ -14,6 +14,10 @@ import ExportModal from './components/ExportModal';
 import AddCategoryModal from './components/AddCategoryModal';
 import MovementHistoryModal from './components/MovementHistoryModal';
 import ManualMovementModal from './components/ManualMovementModal';
+import ImportHistoryModal from './components/ImportHistoryModal';
+import ToolsModal from './components/ToolsModal';
+import FusionModal from './components/FusionModal';
+import AuditLogModal from './components/AuditLogModal';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { productSortComparator } from './utils';
 import FinancialPanel from './components/FinancialPanel';
@@ -26,13 +30,15 @@ const App: React.FC = () => {
     allCategories, setAllCategories,
     movements, setMovements,
     manualMovements, setManualMovements,
-    addMovement, handleProductSave, handleMultipleMovementsDelete
+    auditLog,
+    logAction, addMovement, handleProductSave, handleMultipleMovementsDelete
   } = useAppStore();
   
   const [modal, setModal] = useState<ModalState | null>(null);
   const [fullscreenData, setFullscreenData] = useState<{ images: string[]; index: number } | null>(null);
   const [currentView, setCurrentView] = useState<'catalog' | 'financials'>('catalog');
-
+  const [fusionMode, setFusionMode] = useState(false);
+  const [selectedForFusion, setSelectedForFusion] = useState<string[]>([]);
 
   const filteredProducts = useMemo(() => {
     if (!products) return [];
@@ -44,13 +50,14 @@ const App: React.FC = () => {
         : !ignoredProductIds.includes(product.id);
       
       if (!matchesIgnoredStatus) return false;
+      if (fusionMode) return true; // Show all non-ignored products in fusion mode
 
       const matchesSearch = (product.title || '').toLowerCase().includes(preferences.searchTerm.toLowerCase());
       const matchesCategory = preferences.selectedCategory === 'Todas' || product.category === preferences.selectedCategory;
       const matchesAvailability = !preferences.showAvailableOnly || product.variants.some(v => v.stock > 0);
       return matchesSearch && matchesCategory && matchesAvailability;
     }).sort(productSortComparator);
-  }, [products, preferences, ignoredProductIds]);
+  }, [products, preferences, ignoredProductIds, fusionMode]);
 
   const handleJsonLoad = useCallback((data: Product[]) => {
     setProducts(data);
@@ -70,6 +77,7 @@ const App: React.FC = () => {
       setMovements({});
       setManualMovements([]);
       localStorage.removeItem(LOCAL_STORAGE_KEYS.DATA_VERSION);
+      localStorage.removeItem(LOCAL_STORAGE_KEYS.AUDIT_LOG);
     }
   }, [setProducts, setPreferences, setIgnoredProductIds, setAllCategories, setMovements, setManualMovements]);
 
@@ -88,25 +96,40 @@ const App: React.FC = () => {
   }, [updatePreference]);
 
   const handleProductDelete = useCallback((productId: string) => {
+    const productToDelete = products?.find(p => p.id === productId);
+    if(productToDelete) logAction('product_delete', `Producto eliminado: "${productToDelete.title}"`);
     setProducts(prev => prev?.filter(p => p.id !== productId) || []);
     setModal(null);
-  }, [setProducts]);
+  }, [products, setProducts, logAction]);
 
   const handleSaveMovement = useCallback((productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
-    let newStockValue = 0;
+    const currentProduct = products?.find(p => p.id === productId);
+    if (!currentProduct) return;
+
+    const variant = currentProduct.variants.find(v => v.id === variantId);
+    if (!variant) return;
+
+    let newStockValue = Math.max(0, variant.stock + movementData.change);
+
     setProducts(prev => prev?.map(p => {
         if (p.id !== productId) return p;
-        const updatedVariants = p.variants.map(v => {
-            if (v.id === variantId) {
-              newStockValue = Math.max(0, v.stock + movementData.change);
-              return { ...v, stock: newStockValue };
-            }
-            return v;
-        });
-        return { ...p, variants: updatedVariants };
+        return {
+            ...p,
+            variants: p.variants.map(v => v.id === variantId ? { ...v, stock: newStockValue } : v),
+        };
     }) || null);
+    
     addMovement(variantId, { ...movementData, newStock: newStockValue });
-  }, [setProducts, addMovement]);
+
+    const totalStockAfterUpdate = currentProduct.variants.reduce((sum, v) => {
+        return sum + (v.id === variantId ? newStockValue : v.stock);
+    }, 0);
+
+    if (totalStockAfterUpdate === 0 && preferences.showAvailableOnly) {
+        updatePreference('showAvailableOnly', false);
+    }
+}, [products, setProducts, addMovement, preferences.showAvailableOnly, updatePreference]);
+
 
   const handleManualMovementSave = useCallback((movement: Omit<ManualMovement, 'id'>) => {
     setManualMovements(prev => [...prev, { ...movement, id: `manual-${Date.now()}-${Math.random()}` }]);
@@ -114,27 +137,31 @@ const App: React.FC = () => {
   }, [setManualMovements]);
 
   const handleIgnoreProduct = useCallback((productId: string) => {
+    const productToIgnore = products?.find(p => p.id === productId);
+    if(productToIgnore) logAction('product_ignore', `Producto ocultado: "${productToIgnore.title}"`);
     setIgnoredProductIds(prev => prev.includes(productId) ? prev : [...prev, productId]);
     setModal(null);
-  }, [setIgnoredProductIds]);
+  }, [products, setIgnoredProductIds, logAction]);
   
   const handleRestoreProduct = useCallback((productToRestore: Product) => {
     if (window.confirm(`¿Seguro que quieres restaurar "${productToRestore.title}"? Volverá a ser visible en el catálogo principal.`)) {
+        logAction('product_restore', `Producto restaurado: "${productToRestore.title}"`);
         setIgnoredProductIds(prev => prev.filter(id => id !== productToRestore.id));
     }
-  }, [setIgnoredProductIds]);
+  }, [setIgnoredProductIds, logAction]);
 
   const handleCategorySave = useCallback((newCategory: string) => {
     const formatted = newCategory.trim().toLowerCase().replace(/\s+/g, '-');
     if (formatted && !allCategories.includes(formatted)) {
+      logAction('category_add', `Categoría añadida: "${formatted}"`);
       setAllCategories(prev => [...prev, formatted]);
     }
     setModal(null);
-  }, [allCategories, setAllCategories]);
+  }, [allCategories, setAllCategories, logAction]);
 
   const handleBackupDownload = useCallback(() => {
     if (!window.confirm('¿Descargar una copia de seguridad completa?')) return;
-    const backupData = { products, preferences, ignoredProductIds, categories: allCategories, movements, manualMovements };
+    const backupData = { products, preferences, ignoredProductIds, categories: allCategories, movements, manualMovements, auditLog };
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -143,7 +170,173 @@ const App: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
     a.remove();
-  }, [products, preferences, ignoredProductIds, allCategories, movements, manualMovements]);
+  }, [products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog]);
+
+  const handleHistoryImport = useCallback((parsedData: { variantId: string, movement: Omit<Movement, 'id'|'variantId'|'newStock'> }[]) => {
+    if (parsedData.length === 0 || !products) {
+      setModal(null);
+      return;
+    }
+  
+    const affectedVariantIds = new Set(parsedData.map(d => d.variantId));
+    let newMovementsState = { ...movements };
+  
+    // 1. Add new movements
+    parsedData.forEach(({ variantId, movement }) => {
+      if (!newMovementsState[variantId]) newMovementsState[variantId] = [];
+      const newMovement = { 
+        ...movement, 
+        newStock: 0, // Placeholder, will be recalculated
+        id: `mov-import-${Date.now()}-${Math.random()}`, 
+        variantId 
+      };
+      // @ts-ignore
+      newMovementsState[variantId].push(newMovement);
+    });
+  
+    // 2. Recalculate stock for all affected variants
+    const newProductsState = products.map(p => {
+      let productWasModified = false;
+      const newVariants = p.variants.map(v => {
+        if (affectedVariantIds.has(v.id)) {
+          productWasModified = true;
+          const history = (newMovementsState[v.id] || []).sort((a, b) => a.timestamp - b.timestamp);
+          let currentStock = 0;
+          
+          history.forEach(m => {
+            currentStock = m.type === 'Inicial' ? m.change : currentStock + m.change;
+            m.newStock = Math.max(0, currentStock);
+          });
+          
+          const finalStock = history.length > 0 ? history[history.length - 1].newStock : 0;
+          return { ...v, stock: finalStock };
+        }
+        return v;
+      });
+  
+      return productWasModified ? { ...p, variants: newVariants } : p;
+    });
+  
+    setMovements(newMovementsState);
+    setProducts(newProductsState);
+    setModal(null);
+    alert(`Importación completada: Se añadieron ${parsedData.length} registros de historial y se actualizó el stock.`);
+  
+  }, [movements, products, setMovements, setProducts]);
+
+    const handleRepairDuplicateVariantIds = useCallback(() => {
+    if (!products) return;
+
+    const variantIdCounts = new Map<string, number>();
+    products.forEach(p => {
+      p.variants.forEach(v => {
+        variantIdCounts.set(v.id, (variantIdCounts.get(v.id) || 0) + 1);
+      });
+    });
+
+    const duplicateIds = [...variantIdCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+
+    if (duplicateIds.length === 0) {
+      alert("No se encontraron IDs de variantes duplicados. ¡Tus datos están en buen estado!");
+      return;
+    }
+
+    if (!window.confirm(`Se encontraron ${duplicateIds.length} ID(s) de variante compartidos. ¿Deseas repararlos automáticamente?\n\nADVERTENCIA: El primer producto encontrado con un ID duplicado conservará el historial compartido. Los demás obtendrán un nuevo ID y su historial se reiniciará basado en su stock actual. Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    let updatedProducts = JSON.parse(JSON.stringify(products));
+    let updatedMovements = JSON.parse(JSON.stringify(movements));
+    let variantsRepairedCount = 0;
+
+    duplicateIds.forEach(dupId => {
+      const productsWithDup = updatedProducts.filter((p: Product) => p.variants.some(v => v.id === dupId));
+      productsWithDup.slice(1).forEach((productToFix: Product) => {
+        const variantToFix = productToFix.variants.find(v => v.id === dupId);
+        if (variantToFix) {
+          const newId = `repaired-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const oldStock = variantToFix.stock;
+          
+          variantToFix.id = newId;
+          
+          updatedMovements[newId] = [{
+            id: `mov-repair-${Date.now()}`,
+            variantId: newId,
+            timestamp: Date.now(),
+            type: 'Inicial',
+            change: oldStock,
+            newStock: oldStock,
+            notes: 'ID de variante reparado. Historial reiniciado.'
+          }];
+          variantsRepairedCount++;
+        }
+      });
+    });
+
+    setProducts(updatedProducts);
+    setMovements(updatedMovements);
+    logAction('data_repair', `Reparación automática ejecutada. Se corrigieron ${variantsRepairedCount} variantes.`);
+    alert(`Reparación completada. Se corrigieron ${variantsRepairedCount} variantes.`);
+  }, [products, movements, setProducts, setMovements, logAction]);
+
+  const handleProductMerge = useCallback((primaryProductId: string, secondaryProductId: string) => {
+    const primaryProduct = products?.find(p => p.id === primaryProductId);
+    const secondaryProduct = products?.find(p => p.id === secondaryProductId);
+
+    if (!primaryProduct || !secondaryProduct) return;
+
+    const mergedVariants = [...primaryProduct.variants, ...secondaryProduct.variants];
+    
+    // Check for duplicate variant names and make them unique
+    const variantNameCounts = new Map<string, number>();
+    mergedVariants.forEach(v => {
+      variantNameCounts.set(v.name, (variantNameCounts.get(v.name) || 0) + 1);
+    });
+    
+    const finalVariants = mergedVariants.map(v => {
+      if ((variantNameCounts.get(v.name) || 0) > 1) {
+        // If name is duplicated, append product title to distinguish it
+        const sourceProductTitle = secondaryProduct.variants.some(sv => sv.id === v.id) 
+            ? secondaryProduct.title.split(' ')[0] // first word of title
+            : primaryProduct.title.split(' ')[0];
+        return { ...v, name: `${v.name} (${sourceProductTitle})` };
+      }
+      return v;
+    });
+
+    const mergedProduct: Product = { ...primaryProduct, variants: finalVariants };
+    
+    setProducts(prev => {
+        if (!prev) return null;
+        const newProducts = prev.filter(p => p.id !== secondaryProductId);
+        return newProducts.map(p => p.id === primaryProductId ? mergedProduct : p);
+    });
+
+    logAction('product_merge', `Productos fusionados: "${secondaryProduct.title}" en "${primaryProduct.title}".`);
+    setModal(null);
+    setFusionMode(false);
+    setSelectedForFusion([]);
+  }, [products, setProducts, logAction]);
+
+  const toggleFusionSelection = (productId: string) => {
+    setSelectedForFusion(prev => {
+        const newSelection = new Set(prev);
+        if (newSelection.has(productId)) {
+            newSelection.delete(productId);
+        } else {
+            if (newSelection.size < 2) newSelection.add(productId);
+        }
+        return Array.from(newSelection);
+    });
+  };
+
+  const startFusion = () => {
+    const productsToFuse = products?.filter(p => selectedForFusion.includes(p.id));
+    if (productsToFuse && productsToFuse.length === 2) {
+        setModal({ type: 'fusion', products: [productsToFuse[0], productsToFuse[1]] });
+    }
+  };
+
 
   const handleImageClick = (images: string[]) => {
     const validImages = images.filter(Boolean);
@@ -172,8 +365,12 @@ const App: React.FC = () => {
       case 'ignore': return <ConfirmIgnoreModal {...commonProps} onConfirm={() => handleIgnoreProduct(modal.product.id)} productName={modal.product.title} />;
       case 'export': return <ExportModal {...commonProps} format={modal.format} products={products} ignoredProductIds={ignoredProductIds} />;
       case 'add-category': return <AddCategoryModal {...commonProps} onSave={handleCategorySave} existingCategories={allCategories} />;
-      case 'movements': return <MovementHistoryModal {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} onDeleteMovements={handleMultipleMovementsDelete} />;
+      case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} onDeleteMovements={handleMultipleMovementsDelete} />;
       case 'manual-movement': return <ManualMovementModal {...commonProps} onSave={handleManualMovementSave} />;
+      case 'import-history': return <ImportHistoryModal {...commonProps} products={products} onImport={handleHistoryImport} />;
+      case 'tools': return <ToolsModal {...commonProps} onRepair={handleRepairDuplicateVariantIds} onFusionStart={() => { setFusionMode(true); setModal(null); }} onShowAuditLog={() => setModal({ type: 'audit-log' })} />;
+      case 'fusion': return <FusionModal {...commonProps} productsToFuse={modal.products} onMerge={handleProductMerge} />;
+      case 'audit-log': return <AuditLogModal {...commonProps} auditLog={auditLog} />;
       default: return null;
     }
   };
@@ -183,12 +380,13 @@ const App: React.FC = () => {
       <div className={currentView === 'catalog' ? "pb-28 md:pb-24" : ""}>
         {currentView === 'catalog' && (
           <Header 
-            viewMode={preferences.viewMode}
             onViewModeChange={(mode) => updatePreference('viewMode', mode)}
             onAddProduct={() => setModal({ type: 'add' })}
             onAddCategory={() => setModal({ type: 'add-category' })}
             onReset={handleReset}
             onNavigateToFinancials={() => setCurrentView('financials')}
+            onOpenTools={() => setModal({ type: 'tools' })}
+            isFusionMode={fusionMode}
           />
         )}
         <main>
@@ -202,7 +400,12 @@ const App: React.FC = () => {
                 onIgnoredChange={handleIgnoredChange}
                 onCategoryChange={cat => updatePreference('selectedCategory', cat)} 
                 productCount={filteredProducts.length} 
-                categories={allCategories} />
+                categories={allCategories}
+                isFusionMode={fusionMode}
+                selectedForFusionCount={selectedForFusion.length}
+                onCancelFusion={() => { setFusionMode(false); setSelectedForFusion([]); }}
+                onStartFusion={startFusion}
+              />
               <ProductDisplay 
                 products={filteredProducts} 
                 viewMode={preferences.viewMode} 
@@ -213,14 +416,25 @@ const App: React.FC = () => {
                 onRestore={handleRestoreProduct}
                 onMovement={product => setModal({ type: 'movements', product })}
                 isIgnoredView={!!preferences.showIgnoredOnly}
+                isFusionMode={fusionMode}
+                selectedForFusion={selectedForFusion}
+                onSelectForFusion={toggleFusionSelection}
               />
             </div>
            ) : (
-             <FinancialPanel onBack={() => setCurrentView('catalog')} products={products} movements={movements} manualMovements={manualMovements} onAddManualMovement={() => setModal({ type: 'manual-movement' })} />
+             <FinancialPanel 
+                onBack={() => setCurrentView('catalog')} 
+                products={products} 
+                movements={movements} 
+                manualMovements={manualMovements} 
+                onAddManualMovement={() => setModal({ type: 'manual-movement' })}
+                onImportHistory={() => setModal({ type: 'import-history' })}
+                onExportCsv={() => setModal({ type: 'export', format: 'csv' })}
+             />
            )}
         </main>
       </div>
-      {currentView === 'catalog' && <Footer onExport={format => setModal({ type: 'export', format })} onBackup={handleBackupDownload}/>}
+      {currentView === 'catalog' && !fusionMode && <Footer onExport={format => setModal({ type: 'export', format })} onBackup={handleBackupDownload}/>}
       {renderModal()}
       {fullscreenData && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenData(null)}>

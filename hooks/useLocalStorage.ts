@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LOCAL_STORAGE_KEYS, DATA_VERSION, INITIAL_CATEGORIES } from '../constants';
-import { Product, UserPreferences, Movements, ManualMovement, Movement } from '../types';
+import { Product, UserPreferences, Movements, ManualMovement, Movement, AuditEntry } from '../types';
 
 export function useLocalStorage<T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [storedValue, setStoredValue] = useState<T>(() => {
@@ -98,6 +98,17 @@ export const useAppStore = () => {
     const [allCategories, setAllCategories] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
     const [movements, setMovements] = useLocalStorage<Movements>(LOCAL_STORAGE_KEYS.MOVEMENTS, {});
     const [manualMovements, setManualMovements] = useLocalStorage<ManualMovement[]>(LOCAL_STORAGE_KEYS.MANUAL_MOVEMENTS, []);
+    const [auditLog, setAuditLog] = useLocalStorage<AuditEntry[]>(LOCAL_STORAGE_KEYS.AUDIT_LOG, []);
+
+    const logAction = useCallback((type: AuditEntry['type'], message: string) => {
+      const newEntry: AuditEntry = {
+        id: `log-${Date.now()}`,
+        timestamp: Date.now(),
+        type,
+        message,
+      };
+      setAuditLog(prev => [newEntry, ...prev]);
+    }, [setAuditLog]);
 
     const addMovement = useCallback((variantId: string, movementData: Omit<Movement, 'id' | 'variantId'>) => {
         setMovements(prev => {
@@ -110,6 +121,7 @@ export const useAppStore = () => {
         setProducts(prevProducts => {
             const existingProduct = prevProducts?.find(p => p.id === productToSave.id);
             if (existingProduct) { // Editing
+                logAction('product_edit', `Producto editado: "${productToSave.title}" (ID: ${productToSave.id})`);
                 productToSave.variants.forEach(variant => {
                     const existingVariant = existingProduct.variants.find(v => v.id === variant.id);
                     const currentStock = variant.stock || 0;
@@ -126,6 +138,7 @@ export const useAppStore = () => {
                 });
                 return prevProducts?.map(p => p.id === productToSave.id ? productToSave : p) || [];
             } else { // New product
+                logAction('product_add', `Producto añadido: "${productToSave.title}"`);
                 productToSave.variants.forEach(variant => {
                     const stock = variant.stock || 0;
                     addMovement(variant.id, { timestamp: Date.now(), type: 'Inicial', change: stock, newStock: stock, notes: 'Stock inicial' });
@@ -133,7 +146,7 @@ export const useAppStore = () => {
                 return [...(prevProducts || []), productToSave];
             }
         });
-    }, [setProducts, addMovement]);
+    }, [setProducts, addMovement, logAction]);
 
     const handleMultipleMovementsDelete = useCallback((variantId: string, movementIdsToDelete: string[]) => {
         const originalMovements = movements[variantId] || [];
@@ -168,7 +181,8 @@ export const useAppStore = () => {
         allCategories, setAllCategories,
         movements, setMovements,
         manualMovements, setManualMovements,
-        addMovement, handleProductSave, handleMultipleMovementsDelete,
+        auditLog, setAuditLog,
+        logAction, addMovement, handleProductSave, handleMultipleMovementsDelete,
     };
 };
 
@@ -236,11 +250,23 @@ export const useFinancialSummary = (
         const netProfit = grossProfit - totalExpenses;
         const topProducts = Object.values(productProfit).sort((a,b) => b.profit - a.profit).slice(0, 5);
         const sortedCategorySales = Object.entries(categorySales).sort((a,b) => b[1] - a[1]);
+        
+        const enrichedDetailedMovements = filteredMovements.map((m: Movement | ManualMovement) => {
+            if ('variantId' in m) { // It's a Movement
+                const variantInfo = variantMap.get(m.variantId);
+                return {
+                    ...m,
+                    productTitle: variantInfo?.product.title || 'Producto Desconocido',
+                    variantName: variantInfo?.variant.name || 'Variante Desconocida',
+                };
+            }
+            return m; // It's a ManualMovement
+        });
 
         return {
             totalRevenue, totalCost, grossProfit, netProfit, itemsSold, topProducts, sortedCategorySales, 
             maxCategorySale: sortedCategorySales[0]?.[1] || 0,
-            detailedMovements: filteredMovements,
+            detailedMovements: enrichedDetailedMovements,
         };
     }, [dateRange, customStart, customEnd, movements, manualMovements, variantMap]);
 };

@@ -13,20 +13,24 @@ interface MovementHistoryModalProps {
 }
 
 const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onClose, product, movements, onSaveMovement, onDeleteMovements }) => {
+  // By using a `key` prop on this component in `App.tsx`, we ensure it remounts with fresh state
+  // every time it's opened for a new product. This robustly prevents state leakage.
+  // We initialize the state directly from the product props.
   const [selectedVariantId, setSelectedVariantId] = useState<string>(product.variants[0]?.id || '');
   const [selectedMovementIds, setSelectedMovementIds] = useState<Set<string>>(new Set());
-
   const [type, setType] = useState<'Venta' | 'Stock' | 'Ajuste'>('Venta');
   const [change, setChange] = useState<number>(1);
   const [notes, setNotes] = useState('');
 
-  // FIX: This effect synchronizes the modal's state with the selected product.
-  // When the `product` prop changes (i.e., opening the modal for a different item),
-  // it resets the selected variant to the first one of the new product,
-  // preventing stale data from the previous product from being displayed.
+  // This effect ensures that when the user switches between variants using the dropdown,
+  // any selections from the previous variant's history and the form fields are cleared to prevent confusion.
   useEffect(() => {
-    setSelectedVariantId(product.variants[0]?.id || '');
-  }, [product]);
+    setSelectedMovementIds(new Set());
+    setType('Venta');
+    setChange(1);
+    setNotes('');
+  }, [selectedVariantId]);
+
 
   const selectedVariant = useMemo(() => {
     return product.variants.find(v => v.id === selectedVariantId);
@@ -35,10 +39,6 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
   const history = useMemo(() => {
     return (movements[selectedVariantId] || []).slice().reverse();
   }, [movements, selectedVariantId]);
-
-  useEffect(() => {
-    setSelectedMovementIds(new Set());
-  }, [isOpen, selectedVariantId]);
 
   const handleSelect = (movementId: string) => {
     setSelectedMovementIds(prev => {
@@ -65,6 +65,7 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
     const confirmation = window.confirm(`¿Estás seguro de que quieres eliminar ${selectedMovementIds.size} registro(s)? Esta acción recalculará el stock y es irreversible.`);
     if (confirmation) {
       onDeleteMovements(selectedVariantId, Array.from(selectedMovementIds));
+      setSelectedMovementIds(new Set()); // Clear selection after deletion
     }
   };
 

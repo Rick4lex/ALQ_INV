@@ -20,6 +20,7 @@ export const LOCAL_STORAGE_KEYS = {
   OMITTED_HINTS: 'alkima-mizu-omitted-hints',
   CATALOG_SELECTED_HINTS: 'alkima-mizu-catalog-hints',
   DATA_VERSION: 'alkima-mizu-data-version',
+  AUDIT_LOG: 'alkima-mizu-audit-log',
 };
 
 export const EMPTY_VARIANT: Omit<Variant, 'id'> = {
@@ -31,7 +32,7 @@ export const EMPTY_VARIANT: Omit<Variant, 'id'> = {
   itemCount: 1,
 };
 
-export const EMPTY_PRODUCT: Omit<Product, 'id'> = {
+export const createEmptyProduct = (): Omit<Product, 'id'> => ({
   title: '',
   category: 'minifiguras',
   description: '',
@@ -39,4 +40,4 @@ export const EMPTY_PRODUCT: Omit<Product, 'id'> = {
   imageUrls: [''],
   imageHint: [],
   variants: [{ ...EMPTY_VARIANT, id: `new-variant-${Date.now()}` }],
-};
+});
