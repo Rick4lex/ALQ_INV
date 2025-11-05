@@ -54,7 +54,7 @@ export interface UserPreferences {
 export interface AuditEntry {
   id: string;
   timestamp: number;
-  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair';
+  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update';
   message: string;
 }
 
@@ -67,7 +67,8 @@ export type ModalState =
   | { type: 'add-category' }
   | { type: 'movements'; product: Product }
   | { type: 'manual-movement' }
-  | { type: 'import-history' }
   | { type: 'tools' }
   | { type: 'fusion'; products: [Product, Product] }
-  | { type: 'audit-log' };
+  | { type: 'audit-log' }
+  | { type: 'bulk-edit'; productsCount: number }
+  | { type: 'import-csv' };

@@ -61,6 +61,37 @@ export function useLocalStorage<T,>(key: string, initialValue: T): [T, React.Dis
               });
           }
 
+          // Migration for imageHint (version 5). It also acts as a data repair step if it detects bad data.
+          const needsImageHintRepair = currentVersion < 5 || value.some((p: any) => p?.imageHint != null && !Array.isArray(p.imageHint));
+
+          if (needsImageHintRepair) {
+              let migrationPerformed = false;
+              const migratedValue = value.map((p: any) => {
+                  if (!p || typeof p !== 'object' || (p.imageHint == null || Array.isArray(p.imageHint))) {
+                    return p; // Already valid (null, undefined, or array) or cannot be processed.
+                  }
+
+                  // If we are here, a migration is needed for this product because imageHint is not an array.
+                  migrationPerformed = true;
+                  const newProduct = { ...p };
+                  const imageHint = p.imageHint;
+
+                  if (typeof imageHint === 'string') {
+                      newProduct.imageHint = imageHint.split(',').map((h: string) => h.trim()).filter(Boolean);
+                  } else if (imageHint) { // Handles any other truthy, non-array value (number, object, boolean)
+                      newProduct.imageHint = [String(imageHint)];
+                  } else { // Handles falsy values that are not null/undefined (e.g., 0, "", false)
+                      newProduct.imageHint = [];
+                  }
+                  return newProduct;
+              });
+
+              if (migrationPerformed) {
+                  dataUpdated = true;
+                  value = migratedValue;
+              }
+          }
+
           if (dataUpdated) {
               window.localStorage.setItem(LOCAL_STORAGE_KEYS.DATA_VERSION, String(DATA_VERSION));
           }

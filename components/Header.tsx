@@ -8,10 +8,10 @@ interface HeaderProps {
   onAddCategory: () => void;
   onNavigateToFinancials: () => void;
   onOpenTools: () => void;
-  isFusionMode: boolean;
+  isSpecialMode: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset, onAddCategory, onNavigateToFinancials, onOpenTools, isFusionMode }) => {
+const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset, onAddCategory, onNavigateToFinancials, onOpenTools, isSpecialMode }) => {
   return (
     <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
       <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -42,7 +42,7 @@ const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset
             <Wrench size={18} />
             <span className="hidden sm:inline">Herramientas</span>
           </button>
-           {!isFusionMode && (
+           {!isSpecialMode && (
             <>
               <button onClick={onNavigateToFinancials} className="flex items-center gap-2 bg-brand-green hover:bg-green-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
                 <BarChartHorizontal size={18} />

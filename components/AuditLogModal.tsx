@@ -1,7 +1,7 @@
 import React from 'react';
 import { AuditEntry } from '../types';
 import Modal from './Modal';
-import { PlusCircle, Edit, Trash2, Combine, Tag, Eye, EyeOff, Wrench } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Combine, Tag, Eye, EyeOff, Wrench, Upload } from 'lucide-react';
 
 interface AuditLogModalProps {
   isOpen: boolean;
@@ -20,6 +20,10 @@ const AuditLogModal: React.FC<AuditLogModalProps> = ({ isOpen, onClose, auditLog
     product_ignore: <EyeOff className="text-yellow-400" />,
     product_restore: <Eye className="text-yellow-400" />,
     data_repair: <Wrench className="text-blue-400" />,
+    bulk_edit: <Edit className="text-blue-400" />,
+    bulk_ignore: <EyeOff className="text-yellow-400" />,
+    bulk_delete: <Trash2 className="text-red-400" />,
+    csv_update: <Upload className="text-teal-400" />,
   };
 
   return (

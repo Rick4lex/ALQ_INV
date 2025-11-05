@@ -15,11 +15,14 @@ interface ProductDisplayProps {
   isFusionMode: boolean;
   selectedForFusion: string[];
   onSelectForFusion: (productId: string) => void;
+  selectedProductIds: Set<string>;
+  onToggleSelection: (productId: string) => void;
 }
 
 const ProductDisplay: React.FC<ProductDisplayProps> = ({ 
   products, viewMode, onEdit, onDelete, onImageClick, onIgnore, onRestore, 
-  onMovement, isIgnoredView, isFusionMode, selectedForFusion, onSelectForFusion 
+  onMovement, isIgnoredView, isFusionMode, selectedForFusion, onSelectForFusion,
+  selectedProductIds, onToggleSelection
 }) => {
   if (products.length === 0) {
     const message = isFusionMode 
@@ -49,6 +52,9 @@ const ProductDisplay: React.FC<ProductDisplayProps> = ({
           isFusionMode={isFusionMode}
           isSelectedForFusion={selectedForFusion.includes(product.id)}
           onSelectForFusion={onSelectForFusion}
+          isSelected={selectedProductIds.has(product.id)}
+          onToggleSelection={onToggleSelection}
+          isSelectionMode={selectedProductIds.size > 0}
         />
       ))}
     </div>

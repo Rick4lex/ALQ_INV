@@ -83,7 +83,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
 
     } else if (format === 'markdown') {
         let markdown = '';
-        // FIX: Explicitly type the accumulator in the 'reduce' function to ensure correct type inference for 'groupedByHint'.
         const groupedByHint = filteredProducts.reduce((acc: Record<string, Product[]>, product) => {
             const hints = product.imageHint && product.imageHint.length > 0 ? product.imageHint : ['Otros'];
             hints.forEach(hint => {
@@ -129,9 +128,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format, prod
             markdown = Object.entries(groupedByHint)
                 .sort(([hintA], [hintB]) => hintA.localeCompare(hintB))
                 .filter(([hint]) => !omittedHints.includes(hint))
-                // FIX: Explicitly type the arguments of the map function. `Object.entries`
-                // can sometimes produce `unknown` values, and this ensures TypeScript knows 
-                // `productsInGroup` is an array of Products.
                 .map(([hint, productsInGroup]: [string, Product[]]) => `\n*${hint}*\n${generateProductMarkdown(productsInGroup)}`)
                 .join('\n');
         }

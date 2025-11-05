@@ -68,7 +68,6 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         const newItemCount = isNaN(numValue) ? 1 : Math.max(1, numValue);
         variantToUpdate.itemCount = newItemCount;
         
-        // Auto-update name only if it was the default or a package name
         if (oldName === 'Único' || oldName === 'Unidad' || /^Paquete de \d+$/.test(oldName)) {
             variantToUpdate.name = newItemCount > 1 ? `Paquete de ${newItemCount}` : 'Unidad';
         }
@@ -132,17 +131,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
       const touchEndX = e.touches[0].clientX;
       const diff = touchStartX.current - touchEndX;
       
-      // Swipe left
-      if (diff > 50) {
-          handleNextImage();
-          touchStartX.current = 0;
-      }
-      
-      // Swipe right
-      if (diff < -50) {
-          handlePrevImage();
-          touchStartX.current = 0;
-      }
+      if (diff > 50) { handleNextImage(); touchStartX.current = 0; }
+      if (diff < -50) { handlePrevImage(); touchStartX.current = 0; }
   };
 
   return (
@@ -208,7 +198,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
               <label htmlFor="title" className="block text-sm font-medium text-gray-300">Título (obligatorio)</label>
               <input type="text" name="title" id="title" required value={product.title} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm" />
             </div>
-            <div>
+             <div>
                 <label htmlFor="category" className="block text-sm font-medium text-gray-300">Categoría</label>
                 <select name="category" id="category" value={product.category} onChange={handleChange} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
                   {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -220,17 +210,14 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                 type="text"
                 id="imageHint"
                 value={(product.imageHint || []).join(', ')}
-                onChange={(e) => {
-                  const hints = e.target.value.split(',').map(h => h.trim());
-                  setProduct(prev => ({ ...prev, imageHint: hints }));
-                }}
+                onChange={(e) => setProduct(prev => ({ ...prev, imageHint: e.target.value.split(',').map(h => h.trim()) }))}
                 placeholder="Ej: Kaiju No. 8, custom minifigure"
                 className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
               />
             </div>
             <div>
               <label htmlFor="details" className="block text-sm font-medium text-gray-300">Detalles</label>
-              <textarea name="details" id="details" value={product.details} onChange={handleChange} rows={3} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"></textarea>
+              <textarea name="details" id="details" value={product.details} onChange={handleChange} rows={2} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"></textarea>
             </div>
           </div>
         </div>

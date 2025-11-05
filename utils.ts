@@ -18,10 +18,16 @@ export const productSortComparator = (a: Product, b: Product): number => {
     const priceA = getSortPrice(a);
     const priceB = getSortPrice(b);
 
+    // Handle unpriced items by sorting them first
     if (priceA === -1 && priceB !== -1) return -1;
     if (priceA !== -1 && priceB === -1) return 1;
-    if (priceA === -1 && priceB === -1) return a.title.localeCompare(b.title);
 
+    // If both are unpriced or have the exact same price, sort by title for consistency
+    if (priceA === priceB) {
+        return a.title.localeCompare(b.title);
+    }
+
+    // Otherwise, sort by price
     return priceA - priceB;
 };
 
@@ -110,8 +116,8 @@ export const generateCsvContent = (products: Product[]): string => {
       p.category,
       p.description,
       p.details,
-      p.imageUrls.join(', '),
-      (p.imageHint || []).join(', '),
+      p.imageUrls.join('; '),
+      (p.imageHint || []).join('; '),
       v.id,
       v.name,
       v.sku,

@@ -10,11 +10,11 @@ interface FinancialPanelProps {
   movements: Movements;
   manualMovements: ManualMovement[];
   onAddManualMovement: () => void;
-  onImportHistory: () => void;
+  onOpenImportModal: () => void;
   onExportCsv: () => void;
 }
 
-const KPICard: React.FC<{ title: string; value: string; icon: React.ReactNode; tooltip: string; }> = ({ title, value, icon, tooltip }) => (
+const KPICard: React.FC<{ title: string; value: string; icon: React.ReactNode; tooltip: string; }> = React.memo(({ title, value, icon, tooltip }) => (
   <div className="bg-gray-800/60 p-4 rounded-xl shadow-lg border border-purple-500/20 relative group flex-1 min-w-[180px] snap-start">
     <div className="flex items-center gap-4">
       <div className="bg-purple-500/20 p-3 rounded-lg">{icon}</div>
@@ -27,9 +27,9 @@ const KPICard: React.FC<{ title: string; value: string; icon: React.ReactNode; t
       <Info size={16} className="text-gray-400" data-tooltip-id="kpi-tooltip" data-tooltip-content={tooltip} />
     </div>
   </div>
-);
+));
 
-const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movements, manualMovements, onAddManualMovement, onImportHistory, onExportCsv }) => {
+const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movements, manualMovements, onAddManualMovement, onOpenImportModal, onExportCsv }) => {
     const [dateRange, setDateRange] = useState('thisMonth');
     const [customStart, setCustomStart] = useState('');
     const [customEnd, setCustomEnd] = useState('');
@@ -74,8 +74,8 @@ const FinancialPanel: React.FC<FinancialPanelProps> = ({ onBack, products, movem
                         )}
                     </div>
                      <div className="flex items-center gap-2 flex-wrap justify-end">
-                        <button onClick={onImportHistory} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><Upload size={18} /><span>Importar Historial</span></button>
                         <button onClick={onExportCsv} className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><Sheet size={18} /><span>Exportar CSV</span></button>
+                        <button onClick={onOpenImportModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><Upload size={18} /><span>Importar CSV</span></button>
                         <button onClick={onAddManualMovement} className="flex items-center gap-2 bg-brand-green hover:bg-green-600 font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"><FilePlus size={18} /><span>Registrar Gasto/Ingreso</span></button>
                     </div>
                 </div>
