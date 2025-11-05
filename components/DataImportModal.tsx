@@ -216,7 +216,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, prod
                             <div className="text-xs text-gray-400 grid grid-cols-3 gap-x-2">
                                {c.priceChange && <span>Precio: {c.priceChange.from} <ArrowRight size={12} className="inline"/> {c.priceChange.to}</span>}
                                {c.costChange && <span>Costo: {c.costChange.from} <ArrowRight size={12} className="inline"/> {c.costChange.to}</span>}
-                               {c.stockChange && <span className="flex items-center gap-1">Stock: {c.stockChange.from} <ArrowRight size={12} className="inline"/> {c.stockChange.to} <History size={12} className="text-yellow-400" title="Se creará un ajuste de historial"/></span>}
+                               {c.stockChange && <span className="flex items-center gap-1">Stock: {c.stockChange.from} <ArrowRight size={12} className="inline"/> {c.stockChange.to} <span title="Se creará un ajuste de historial"><History size={12} className="text-yellow-400"/></span></span>}
                             </div>
                         </div>
                     ))}
