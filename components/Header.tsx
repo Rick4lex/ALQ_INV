@@ -15,10 +15,10 @@ const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset
   return (
     <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
       <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+        <a href="https://rick4lex.github.io/ALQUIMA/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
            <Sparkles className="h-8 w-8 text-purple-400" />
            <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">Alquima Mizu</h1>
-        </div>
+        </a>
         
         <div className="flex items-center gap-2">
           <button
