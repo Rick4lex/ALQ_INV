@@ -1,17 +1,27 @@
-import React from 'react';
-import { LayoutGrid, List, Plus, Undo2, Sparkles, Tag, BarChartHorizontal, Wrench } from 'lucide-react';
+import React, { useState } from 'react';
+import { LayoutGrid, List, Plus, Sparkles, Tag, BarChartHorizontal, Wrench, Share2, LogOut } from 'lucide-react';
 
 interface HeaderProps {
   onViewModeChange: (mode: 'grid' | 'list') => void;
   onAddProduct: () => void;
-  onReset: () => void;
+  onLeave: () => void;
   onAddCategory: () => void;
   onNavigateToFinancials: () => void;
   onOpenTools: () => void;
   isSpecialMode: boolean;
+  docUrl: string;
 }
 
-const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset, onAddCategory, onNavigateToFinancials, onOpenTools, isSpecialMode }) => {
+const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onLeave, onAddCategory, onNavigateToFinancials, onOpenTools, isSpecialMode, docUrl }) => {
+  const [copied, setCopied] = useState(false);
+  
+  const handleShare = () => {
+    navigator.clipboard.writeText(docUrl).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
   return (
     <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
       <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -38,6 +48,11 @@ const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset
         </div>
 
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button onClick={handleShare} className="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105 relative">
+            <Share2 size={18} />
+            <span className="hidden sm:inline">Compartir URL</span>
+            {copied && <span className="absolute -top-7 left-1/2 -translate-x-1/2 text-xs bg-green-600 text-white px-2 py-0.5 rounded-full whitespace-nowrap">¡URL Copiada!</span>}
+          </button>
            <button onClick={onOpenTools} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
             <Wrench size={18} />
             <span className="hidden sm:inline">Herramientas</span>
@@ -56,9 +71,9 @@ const Header: React.FC<HeaderProps> = ({ onViewModeChange, onAddProduct, onReset
                 <Plus size={18} />
                 <span className="hidden sm:inline">Añadir</span>
               </button>
-              <button onClick={onReset} className="flex items-center gap-2 bg-brand-red hover:bg-red-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
-                <Undo2 size={18} />
-                <span className="hidden sm:inline">Reiniciar</span>
+              <button onClick={onLeave} className="flex items-center gap-2 bg-brand-red hover:bg-red-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
+                <LogOut size={18} />
+                <span className="hidden sm:inline">Salir</span>
               </button>
             </>
            )}

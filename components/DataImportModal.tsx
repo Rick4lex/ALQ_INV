@@ -1,6 +1,6 @@
+
 import React, { useState, DragEvent, useMemo, useCallback } from 'react';
-import { Product, Variant } from '../types';
-import { CsvUpdatePayload } from '../App';
+import { Product, Variant, CsvUpdatePayload } from '../types';
 import Modal from './Modal';
 import { UploadCloud, CheckCircle, XCircle, AlertTriangle, ArrowRight, History } from 'lucide-react';
 

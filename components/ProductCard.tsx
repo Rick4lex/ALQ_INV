@@ -51,6 +51,13 @@ const ProductCard: React.FC<ProductCardProps> = ({
     if (isFusionMode && onSelectForFusion) onSelectForFusion(product.id);
     else if (isSelectionMode && onToggleSelection) onToggleSelection(product.id);
   };
+  
+  const handleRestoreClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (window.confirm(`¿Seguro que quieres restaurar "${product.title}"? Volverá a ser visible en el catálogo principal.`)) {
+        onRestore(product);
+      }
+  };
 
   const SelectionIcon = isSelected ? CheckSquare : Square;
 
@@ -109,7 +116,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
             <div className="flex items-center gap-2">
               <button onClick={(e) => { e.stopPropagation(); onMovement(product); }} className="p-2 rounded-full text-green-400 hover:bg-green-500/20" title="Historial"><History size={18} /></button>
               {isIgnoredView ? (
-                <button onClick={(e) => { e.stopPropagation(); onRestore(product); }} className="p-2 rounded-full text-yellow-400 hover:bg-yellow-500/20" title="Restaurar"><Eye size={18} /></button>
+                <button onClick={handleRestoreClick} className="p-2 rounded-full text-yellow-400 hover:bg-yellow-500/20" title="Restaurar"><Eye size={18} /></button>
               ) : (
                 <button onClick={(e) => { e.stopPropagation(); onIgnore(product); }} className="p-2 rounded-full text-gray-400 hover:bg-gray-500/20" title="Ocultar"><EyeOff size={18} /></button>
               )}

@@ -48,7 +48,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ isOpen, onClose, on
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Añadir Nueva Categoría">
-      <form onSubmit={handleSubmit} className="flex flex-col h-full">
+      <form onSubmit={handleSubmit} className="p-6 flex flex-col h-full">
         <div className="flex-grow space-y-4">
           <div>
             <p className="text-gray-300 mb-1">

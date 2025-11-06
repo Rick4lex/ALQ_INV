@@ -1,7 +1,9 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { RepoProvider } from '@automerge/automerge-repo-react';
+import { repo } from './lib/automerge-repo';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -11,6 +13,10 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <RepoProvider repo={repo}>
+        <App />
+      </RepoProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );
