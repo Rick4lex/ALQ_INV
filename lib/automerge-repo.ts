@@ -1,133 +1,97 @@
-import { Repo } from "@automerge/automerge-repo";
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
+import { Repo, DocHandle, DocumentId } from "@automerge/automerge-repo";
+import { LocalStorageStoreAdapter } from "@automerge/automerge-repo-storage-localstorage";
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel";
-import { WebRTCNetworkAdapter } from "@automerge/automerge-repo-network-webrtc";
-import { useState, useEffect } from 'react';
 
-const isDevelopment = (import.meta as any).env.DEV;
-const DB_NAME = "alkima-mizu-automerge-data";
+import {
+  Product,
+  UserPreferences,
+  Movements,
+  ManualMovement,
+  AuditEntry,
+} from '../types';
+import { INITIAL_CATEGORIES } from '../constants';
 
-export function isValidDocumentUrl(url: string): boolean {
-  if (typeof url !== 'string') return false;
-  if (!url.startsWith('automerge:')) return false;
-  if (url.length < 46) return false;
-  return true;
+// Define the schema for our Automerge document. This helps with type safety.
+export interface AppDoc {
+  products: Product[];
+  preferences: UserPreferences;
+  ignoredProductIds: string[];
+  allCategories: string[];
+  movements: Movements;
+  manualMovements: ManualMovement[];
+  auditLog: AuditEntry[];
 }
 
-export function resetRepository(): Promise<void> {
-  console.warn("Performing full repository reset...");
-  return new Promise<void>((resolve, reject) => {
-    const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
-    deleteRequest.onsuccess = () => {
-      console.log(`IndexedDB database "${DB_NAME}" deleted successfully.`);
-      resolve();
-    };
-    deleteRequest.onerror = () => {
-      console.error(`Error deleting database "${DB_NAME}".`);
-      reject(deleteRequest.error);
-    };
-    deleteRequest.onblocked = () => {
-      console.warn(`Deletion of database "${DB_NAME}" is blocked. Please close all other tabs of this application and try again.`);
-      reject(new Error("Database deletion was blocked by another open tab."));
-    };
-  });
-}
-
-export interface SyncStatus {
-  isOnline: boolean;
-  connectedPeers: number;
-  lastSync: string | null;
-  syncErrors: string[];
-}
-
-class SyncMonitor {
-  private static instance: SyncMonitor;
-  private listeners: Set<(status: SyncStatus) => void> = new Set();
-  private currentStatus: SyncStatus = {
-    isOnline: navigator.onLine,
-    connectedPeers: 0,
-    lastSync: null,
-    syncErrors: [],
-  };
-
-  static getInstance(): SyncMonitor {
-    if (!SyncMonitor.instance) {
-      SyncMonitor.instance = new SyncMonitor();
-    }
-    return SyncMonitor.instance;
-  }
-
-  private constructor() {
-    this.setupListeners();
-  }
-
-  private setupListeners() {
-    window.addEventListener('online', () => this.updateStatus({ isOnline: true }));
-    window.addEventListener('offline', () => this.updateStatus({ isOnline: false }));
-  }
-
-  subscribe(listener: (status: SyncStatus) => void): () => void {
-    this.listeners.add(listener);
-    listener(this.currentStatus);
-    return () => this.listeners.delete(listener);
-  }
-
-  updateStatus(update: Partial<SyncStatus>) {
-    this.currentStatus = { ...this.currentStatus, ...update };
-    this.listeners.forEach(listener => listener(this.currentStatus));
-  }
-
-  addSyncError(error: string) {
-    const errors = [...this.currentStatus.syncErrors, error].slice(-5);
-    this.updateStatus({ syncErrors: errors });
-  }
-
-  recordSync() {
-    this.updateStatus({ lastSync: new Date().toISOString() });
-  }
-}
-
-export const monitor = SyncMonitor.getInstance();
-
-export const repo = new Repo({
-  storage: new IndexedDBStorageAdapter(DB_NAME),
-  network: [
-    new BroadcastChannelNetworkAdapter(),
-    new WebRTCNetworkAdapter({ signaling: ["wss://sync.automerge.org/"] })
-  ],
-  sharePolicy: async (peerId) => true,
-  ...(isDevelopment && {
-    onError: (event) => {
-      console.error('[Automerge Repo Error]', event);
-      const errorMessage = (event as any).message || 'Error de sincronización desconocido';
-      monitor.addSyncError(errorMessage);
-    },
-  }),
+// Create a single, shared repo instance.
+const repo = new Repo({
+  // The BroadcastChannel network adapter allows for real-time sync between browser tabs.
+  network: [new BroadcastChannelNetworkAdapter()],
+  // The LocalStorage storage adapter persists the repo's state, making it available offline.
+  storage: new LocalStorageStoreAdapter(),
 });
 
-// FIX: Use correct event names 'peer:candidate' and 'peer:disconnect' for peer status updates.
-repo.on('peer:candidate', () => monitor.updateStatus({ connectedPeers: repo.peers.length }));
-repo.on('peer:disconnect', () => monitor.updateStatus({ connectedPeers: repo.peers.length }));
-repo.on('document', ({ handle }) => {
-    if (!(handle as any).__syncListenerAttached) {
-        handle.on('change', () => monitor.recordSync());
-        (handle as any).__syncListenerAttached = true;
+// A variable to hold our single document handle and a promise for its initialization.
+let rootDocHandle: DocHandle<AppDoc> | null = null;
+let rootDocHandlePromise: Promise<DocHandle<AppDoc>> | null = null;
+
+
+/**
+ * Returns the synchronized document handle.
+ * Throws an error if called before initialization is complete.
+ */
+export const getRootDocHandleSync = (): DocHandle<AppDoc> => {
+  if (!rootDocHandle) {
+    throw new Error("Doc handle not initialized. Call initializeRootDocHandle first.");
+  }
+  return rootDocHandle;
+};
+
+/**
+ * Retrieves or creates the root document handle for the application.
+ * This function is idempotent: it will only create the repo and document once,
+ * returning the same promise for concurrent calls.
+ */
+export const initializeRootDocHandle = (): Promise<DocHandle<AppDoc>> => {
+  // If the handle is already created, return a resolved promise immediately.
+  if (rootDocHandle) {
+    return Promise.resolve(rootDocHandle);
+  }
+
+  // If initialization is already in progress, return the existing promise.
+  if (rootDocHandlePromise) {
+    return rootDocHandlePromise;
+  }
+  
+  // Start initialization.
+  rootDocHandlePromise = (async () => {
+    const docId = "alkima-mizu-automerge-doc" as DocumentId;
+    
+    // `repo.find` is synchronous and returns a handle immediately.
+    const handle = repo.find<AppDoc>(docId);
+  
+    // Use whenReady() to wait for the document to be loaded from storage or network.
+    await handle.whenReady();
+    const doc = handle.docSync();
+  
+    // If the document is empty or new, initialize it with a default structure.
+    if (!doc || Object.keys(doc).length === 0) {
+      handle.change(d => {
+        d.products = [];
+        d.preferences = {
+          viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false,
+        };
+        d.ignoredProductIds = ['banner'];
+        d.allCategories = INITIAL_CATEGORIES;
+        d.movements = {};
+        d.manualMovements = [];
+        d.auditLog = [];
+      });
     }
-});
+  
+    // Store the handle in our singleton variable for sync access later.
+    rootDocHandle = handle;
+    return handle;
+  })();
 
-export function useSyncStatus() {
-  const [status, setStatus] = useState<SyncStatus>({
-    isOnline: navigator.onLine,
-    connectedPeers: repo.peers.length,
-    lastSync: null,
-    syncErrors: [],
-  });
-
-  useEffect(() => {
-    const monitorInstance = SyncMonitor.getInstance();
-    const unsubscribe = monitorInstance.subscribe(setStatus);
-    return unsubscribe;
-  }, []);
-
-  return status;
-}
+  return rootDocHandlePromise;
+};

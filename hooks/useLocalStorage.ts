@@ -1,463 +1,344 @@
-// FIX: Import React to resolve namespace errors for React types.
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { useRepo, useDocument, DocHandle } from '@automerge/automerge-repo-react';
-// FIX: Import DocumentId type for casting, as repo.delete() requires a branded string type, not a plain string.
-import type { DocumentId } from '@automerge/automerge-repo';
-import { LOCAL_STORAGE_KEYS, INITIAL_CATEGORIES } from '../constants';
-import { Product, UserPreferences, Movements, ManualMovement, Movement, AuditEntry, AppDoc, CsvUpdatePayload, Variant } from '../types';
-import { resetRepository } from '../lib/automerge-repo';
-import { repo } from '../lib/automerge-repo';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Product, UserPreferences, Movements, ManualMovement, Movement, AuditEntry } from '../types';
+import { useDocument } from './useDocument';
+import { getRootDocHandleSync, AppDoc } from '../lib/automerge-repo';
+import { INITIAL_CATEGORIES, LOCAL_STORAGE_KEYS } from '../constants';
 
-const DOC_URL_KEY = 'alkima-mizu-doc-url';
-
-const initialPreferences: UserPreferences = {
-  viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false,
-};
-
-// This function attempts to read and parse data from localStorage.
-const getStoredData = <T,>(key: string, fallback: T): T => {
-  try {
-    const item = window.localStorage.getItem(key);
-    return item ? JSON.parse(item) : fallback;
-  } catch (error) {
-    console.warn(`Error parsing localStorage key "${key}":`, error);
-    return fallback;
-  }
-};
-
-// FIX: Re-add the generic useLocalStorage hook for persisting non-synced UI state.
-export function useLocalStorage<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [value, setValue] = useState<T>(() => {
+export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    if (typeof window === 'undefined') {
+      return initialValue;
+    }
     try {
       const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : defaultValue;
+      return item ? JSON.parse(item) : initialValue;
     } catch (error) {
-      console.warn(`Error reading localStorage key "${key}":`, error);
-      return defaultValue;
+      console.error(error);
+      return initialValue;
     }
   });
 
-  useEffect(() => {
+  const setValue = (value: T | ((val: T) => T)) => {
     try {
-      window.localStorage.setItem(key, JSON.stringify(value));
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(key, JSON.stringify(valueToStore));
+      }
     } catch (error) {
-      console.warn(`Error setting localStorage key "${key}”:`, error);
+      console.error(error);
     }
-  }, [key, value]);
-
-  return [value, setValue];
+  };
+  return [storedValue, setValue];
 }
 
-// NEW: Hook to manage the document URL for P2P sharing.
-export const useDocUrl = () => {
-    const [docUrl, setDocUrl] = useState<string | undefined>(() => localStorage.getItem(DOC_URL_KEY) || undefined);
-
-    const setAndStoreDocUrl = useCallback((url: string) => {
-        localStorage.setItem(DOC_URL_KEY, url);
-        setDocUrl(url);
-    }, []);
-
-    const createNewDoc = useCallback(() => {
-        const handle: DocHandle<AppDoc> = repo.create<AppDoc>();
-        setAndStoreDocUrl(handle.url);
-        return handle.url;
-    }, [repo, setAndStoreDocUrl]);
-
-    const clearDocUrl = useCallback(() => {
-        localStorage.removeItem(DOC_URL_KEY);
-        setDocUrl(undefined);
-    }, []);
-
-    return { docUrl, setDocUrl: setAndStoreDocUrl, createNewDoc, clearDocUrl };
+// Helper para añadir un movimiento dentro de un bloque de cambio de Automerge.
+// Esto evita la repetición de código y asegura consistencia.
+const addMovementInChangeBlock = (doc: AppDoc, variantId: string, movementData: Omit<Movement, 'id' | 'variantId'>) => {
+    const newMovement: Movement = { ...movementData, id: `mov-${Date.now()}-${Math.random()}`, variantId };
+    if (!doc.movements[variantId]) {
+        doc.movements[variantId] = [];
+    }
+    doc.movements[variantId].push(newMovement);
 };
 
-// --- Centralized Application Logic Hook ---
-export const useAppStore = (docUrl: string | undefined) => {
-    const [doc, changeDoc] = useDocument<AppDoc>(docUrl);
-    const [isReady, setIsReady] = useState(false); // NEW: Local state to signal readiness
+// --- Hook Central de Lógica de la Aplicación ---
+export const useAppStore = () => {
+    const doc = useDocument<AppDoc>();
+    const handle = getRootDocHandleSync(); // Retrieve handle safely inside the hook
 
-    // This effect handles the one-time initialization of the Automerge document.
-    // It now uses a local `isReady` state to signal when the app can safely render.
-    useEffect(() => {
-        if (!doc) {
-            // Still waiting for the document to be loaded from the repo.
-            return;
-        }
-
-        if (doc.initialized) {
-            // Document is already initialized and ready.
-            setIsReady(true);
-            return;
-        }
-        
-        // Document exists but is not initialized, so we perform the setup.
-        // This block will only run once per document lifetime, protected by the `initialized` flag.
-        changeDoc(d => {
-            // Double-check inside the change function to prevent race conditions
-            // from other tabs or rapid re-renders.
-            if (d.initialized) return; 
-
-            console.log("Uninitialized document detected, performing first-time setup...");
-            const oldProducts = getStoredData<Product[] | null>(LOCAL_STORAGE_KEYS.PRODUCTS, null);
-            if (oldProducts) {
-                console.log("Migrating data from localStorage to Automerge...");
-                d.products = oldProducts;
-                d.preferences = getStoredData<UserPreferences>(LOCAL_STORAGE_KEYS.PREFERENCES, initialPreferences);
-                d.ignoredProductIds = getStoredData<string[]>(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, ['banner']);
-                d.allCategories = getStoredData<string[]>(LOCAL_STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
-                d.movements = getStoredData<Movements>(LOCAL_STORAGE_KEYS.MOVEMENTS, {});
-                d.manualMovements = getStoredData<ManualMovement[]>(LOCAL_STORAGE_KEYS.MANUAL_MOVEMENTS, []);
-                d.auditLog = getStoredData<AuditEntry[]>(LOCAL_STORAGE_KEYS.AUDIT_LOG, []);
-            } else {
-                console.log("No localStorage data found, creating a fresh document.");
-                d.products = null; // Set to null to trigger the initial JsonLoader screen.
-                d.preferences = initialPreferences;
-                d.ignoredProductIds = ['banner'];
-                d.allCategories = INITIAL_CATEGORIES;
-                d.movements = {};
-                d.manualMovements = [];
-                d.auditLog = [];
-            }
-            // Set the flag to indicate initialization is complete.
-            d.initialized = true;
-        });
-        
-        // Note: After this change is applied, the `doc` will update, this effect will re-run,
-        // and the `doc.initialized` check at the top will pass, setting `isReady = true`.
-    }, [doc, changeDoc]);
+    // --- Capa de Adaptación: Materialización del Estado ---
+    // Convierte los proxies de Automerge en objetos y arrays de JavaScript puros
+    // para que React pueda trabajar con ellos de forma segura y eficiente.
+    const products = useMemo(() => (doc && doc.products ? [...doc.products] : null), [doc]);
+    const preferences = useMemo(() => (doc ? { ...doc.preferences } : { viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false }), [doc]);
+    const ignoredProductIds = useMemo(() => (doc ? [...doc.ignoredProductIds] : []), [doc]);
+    const allCategories = useMemo(() => (doc ? [...doc.allCategories] : []), [doc]);
+    const movements = useMemo(() => (doc ? JSON.parse(JSON.stringify(doc.movements)) : {}), [doc]);
+    const manualMovements = useMemo(() => (doc ? [...doc.manualMovements] : []), [doc]);
+    const auditLog = useMemo(() => (doc ? [...doc.auditLog] : []), [doc]);
     
-    // --- State Derivation (Defensive Programming) ---
-    const products = useMemo(() => {
-        if (!isReady) return undefined; // Still loading, App will show a loader
-        if (doc?.products === null) return null; // This is a valid state for showing the JsonLoader
-
-        // If doc.products is not an array, it's corrupt. Trigger JsonLoader.
-        if (!Array.isArray(doc?.products)) {
-            console.warn("Data corruption: doc.products is not an array. Resetting to null.");
-            return null;
-        }
-        
-        // Exhaustive Sanitization: "Trust Nothing" approach.
-        // This ensures the app never crashes due to malformed data from Automerge.
-        return doc.products
-          .map((p, index) => {
-            // 1. Ensure product is a valid object
-            if (typeof p !== 'object' || p === null) {
-                console.warn(`Data corruption: Product at index ${index} is not an object. Skipping.`);
-                return null;
-            }
-
-            // 2. Sanitize every property of the product
-            const sanitizedProduct: Product = {
-                id: typeof p.id === 'string' && p.id ? p.id : `corrupt-id-${Date.now()}-${index}`,
-                title: typeof p.title === 'string' ? p.title : 'Producto Sin Título',
-                category: typeof p.category === 'string' ? p.category : 'sin-categoria',
-                description: typeof p.description === 'string' ? p.description : '',
-                details: typeof p.details === 'string' ? p.details : '',
-                imageUrls: Array.isArray(p.imageUrls) ? p.imageUrls.filter(u => typeof u === 'string') : [],
-                imageHint: Array.isArray(p.imageHint) ? p.imageHint.filter(h => typeof h === 'string') : [],
-                variants: [], // Will be populated next
-            };
-            
-            if (typeof p.id !== 'string' || !p.id) {
-                console.warn(`Data corruption: Product at index ${index} has an invalid ID. Assigned a temporary one.`, p);
-            }
-
-            // 3. Sanitize every variant within the product
-            if (Array.isArray(p.variants)) {
-                sanitizedProduct.variants = p.variants
-                  .map((v, vIndex) => {
-                    if (typeof v !== 'object' || v === null) {
-                        console.warn(`Data corruption: Variant at index ${vIndex} for product "${sanitizedProduct.title}" is not an object. Skipping.`);
-                        return null;
-                    }
-                    
-                    const numStock = Number(v.stock);
-                    const numPrice = Number(v.price);
-                    const numCost = Number(v.cost);
-                    const numItemCount = Number(v.itemCount);
-
-                    const sanitizedVariant: Variant = {
-                        id: typeof v.id === 'string' && v.id ? v.id : `corrupt-variant-${Date.now()}-${vIndex}`,
-                        name: typeof v.name === 'string' ? v.name : 'Variante Sin Nombre',
-                        sku: typeof v.sku === 'string' ? v.sku : undefined,
-                        price: !isNaN(numPrice) ? numPrice : 0,
-                        cost: !isNaN(numCost) ? numCost : 0,
-                        stock: !isNaN(numStock) ? numStock : 0,
-                        itemCount: !isNaN(numItemCount) && numItemCount > 0 ? numItemCount : 1,
-                    };
-
-                    if (typeof v.id !== 'string' || !v.id) {
-                        console.warn(`Data corruption: Variant for product "${sanitizedProduct.title}" has an invalid ID. Assigned a temporary one.`, v);
-                    }
-                    
-                    return sanitizedVariant;
-                  })
-                  .filter((v): v is Variant => v !== null); // Filter out any null (malformed) variants.
-            } else {
-                // If variants is not an array at all, default to an empty one.
-                console.warn(`Data corruption: variants for product "${sanitizedProduct.title}" is not an array. Defaulting to empty.`);
-                sanitizedProduct.variants = [];
-            }
-
-            return sanitizedProduct;
-          })
-          .filter((p): p is Product => p !== null); // Filter out any null (malformed) products.
-
-    }, [isReady, doc?.products]);
-
-    const preferences = useMemo(() => (doc?.preferences && typeof doc.preferences === 'object' && !Array.isArray(doc.preferences)) ? doc.preferences : initialPreferences, [doc?.preferences]);
-    
-    const ignoredProductIds = useMemo(() => Array.isArray(doc?.ignoredProductIds) ? doc.ignoredProductIds : ['banner'], [doc?.ignoredProductIds]);
-    
-    const allCategories = useMemo(() => Array.isArray(doc?.allCategories) ? doc.allCategories : INITIAL_CATEGORIES, [doc?.allCategories]);
-    
-    const movements = useMemo(() => (doc?.movements && typeof doc.movements === 'object' && !Array.isArray(doc.movements)) ? doc.movements : {}, [doc?.movements]);
-    
-    const manualMovements = useMemo(() => Array.isArray(doc?.manualMovements) ? doc.manualMovements : [], [doc?.manualMovements]);
-    
-    const auditLog = useMemo(() => Array.isArray(doc?.auditLog) ? doc.auditLog : [], [doc?.auditLog]);
-    
-
-    // --- Actions ---
+    // --- Acciones de Modificación de Estado ---
+    // Cada función envuelve las modificaciones en `handle.change` para asegurar
+    // que se apliquen de forma transaccional a Automerge.
 
     const logAction = useCallback((type: AuditEntry['type'], message: string) => {
-      changeDoc(d => {
-        if (!Array.isArray(d.auditLog)) d.auditLog = [];
-        const newEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type, message };
-        d.auditLog.unshift(newEntry);
-      });
-    }, [changeDoc]);
-
-    const addMovement = useCallback((variantId: string, movementData: Omit<Movement, 'id' | 'variantId'>) => {
-        changeDoc(d => {
-            if (!d.movements || typeof d.movements !== 'object' || Array.isArray(d.movements)) d.movements = {};
-            const newMovement: Movement = { ...movementData, id: `mov-${Date.now()}-${Math.random()}`, variantId };
-            if (!Array.isArray(d.movements[variantId])) d.movements[variantId] = [];
-            d.movements[variantId].push(newMovement);
+        handle.change(d => {
+            const newEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type, message };
+            d.auditLog.unshift(newEntry);
         });
-    }, [changeDoc]);
-    
+    }, [handle]);
+
     const handleProductSave = useCallback((productToSave: Product) => {
-        changeDoc(d => {
-            if (!Array.isArray(d.products)) d.products = [];
-            const existingProduct = d.products.find(p => p.id === productToSave.id);
-            if (existingProduct) { // Editing
-                logAction('product_edit', `Producto editado: "${productToSave.title}" (ID: ${productToSave.id})`);
+        handle.change(d => {
+            const existingProductIndex = d.products.findIndex(p => p.id === productToSave.id);
+            if (existingProductIndex > -1) { // Edición
+                const existingProduct = d.products[existingProductIndex];
+                const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_edit', message: `Producto editado: "${productToSave.title}" (ID: ${productToSave.id})` };
+                d.auditLog.unshift(logEntry);
+
                 productToSave.variants.forEach(variant => {
                     const existingVariant = existingProduct.variants.find(v => v.id === variant.id);
                     const currentStock = variant.stock || 0;
                     const oldStock = existingVariant?.stock || 0;
 
                     if (!existingVariant) {
-                        addMovement(variant.id, { timestamp: Date.now(), type: 'Inicial', change: currentStock, newStock: currentStock, notes: 'Variante nueva añadida' });
+                        addMovementInChangeBlock(d, variant.id, { timestamp: Date.now(), type: 'Inicial', change: currentStock, newStock: currentStock, notes: 'Variante nueva añadida' });
                     } else if (oldStock !== currentStock) {
                         const change = currentStock - oldStock;
                         if (change !== 0) {
-                            addMovement(variant.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: currentStock, notes: 'Ajuste desde formulario' });
+                            addMovementInChangeBlock(d, variant.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: currentStock, notes: 'Ajuste desde formulario' });
                         }
                     }
                 });
-                const productIndex = d.products.findIndex(p => p.id === productToSave.id);
-                if (productIndex > -1) d.products[productIndex] = productToSave;
-            } else { // New product
-                logAction('product_add', `Producto añadido: "${productToSave.title}"`);
+                d.products[existingProductIndex] = productToSave;
+            } else { // Nuevo producto
+                const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_add', message: `Producto añadido: "${productToSave.title}"` };
+                d.auditLog.unshift(logEntry);
+                
                 productToSave.variants.forEach(variant => {
                     const stock = variant.stock || 0;
-                    addMovement(variant.id, { timestamp: Date.now(), type: 'Inicial', change: stock, newStock: stock, notes: 'Stock inicial' });
+                    addMovementInChangeBlock(d, variant.id, { timestamp: Date.now(), type: 'Inicial', change: stock, newStock: stock, notes: 'Stock inicial' });
                 });
                 d.products.push(productToSave);
             }
         });
-    }, [changeDoc, logAction, addMovement]);
-    
-    const handleReset = useCallback(async () => {
-        if (window.confirm('ADVERTENCIA: ¿Estás seguro de que quieres borrar PERMANENTEMENTE todos los datos de este catálogo en este dispositivo? Esta acción es irreversible y no se puede deshacer.')) {
-            try {
-                // Remove the doc from the current repo instance in memory
-                if (docUrl) {
-                    // FIX: The correct method to delete a document from the repo is `delete`, not `remove`.
-                    // FIX: Cast docUrl to DocumentId as required by the repo.delete method to fix type error.
-                    repo.delete(docUrl as DocumentId);
-                }
-                // Wipe all persisted Automerge data from IndexedDB
-                await resetRepository();
+    }, [handle]);
 
-                // Clear any other related localStorage items
-                localStorage.removeItem(DOC_URL_KEY);
-                Object.values(LOCAL_STORAGE_KEYS).forEach(key => localStorage.removeItem(key));
+    const handleMultipleMovementsDelete = useCallback((variantId: string, movementIdsToDelete: string[]) => {
+        handle.change(d => {
+            const originalMovements = d.movements[variantId] || [];
+            const remainingMovements = originalMovements.filter(m => !movementIdsToDelete.includes(m.id));
 
-                // Reload the page to start with a fresh state
-                alert("Los datos han sido borrados. La aplicación se reiniciará.");
-                window.location.reload();
-            } catch (error: any) {
-                alert(`Error al borrar los datos: ${error.message}. Por favor, cierra otras pestañas de esta aplicación y vuelve a intentarlo.`);
-            }
-        }
-    }, [docUrl]);
+            let currentStock = 0;
+            const recalculatedMovements = remainingMovements.sort((a, b) => a.timestamp - b.timestamp).map(m => {
+                currentStock = m.type === 'Inicial' ? m.change : currentStock + m.change;
+                currentStock = Math.max(0, currentStock);
+                return { ...m, newStock: currentStock };
+            });
+
+            const finalStock = recalculatedMovements.length > 0 ? recalculatedMovements[recalculatedMovements.length - 1].newStock : 0;
+
+            d.products.forEach(p => {
+                const variantIndex = p.variants.findIndex(v => v.id === variantId);
+                if (variantIndex > -1) p.variants[variantIndex].stock = finalStock;
+            });
+            d.movements[variantId] = recalculatedMovements;
+        });
+    }, [handle]);
     
-    const handleJsonLoad = useCallback((loadedProducts: Product[]) => {
-        changeDoc(d => {
-            d.products = loadedProducts;
-            const loadedCategories = [...new Set(loadedProducts.map(p => p.category).filter(Boolean))];
-            if (!Array.isArray(d.allCategories)) d.allCategories = INITIAL_CATEGORIES;
+    const loadJsonData = useCallback((data: Product[]) => {
+        handle.change(d => {
+            d.products = data;
+            const loadedCategories = [...new Set(data.map(p => p.category).filter(Boolean))];
             const currentCategories = new Set(d.allCategories);
             const newCategories = loadedCategories.filter(c => !currentCategories.has(c));
-            if (newCategories.length > 0) {
-                d.allCategories.push(...newCategories);
-            }
+            if(newCategories.length > 0) d.allCategories.push(...newCategories);
         });
-    }, [changeDoc]);
-
-    const handleRestore = useCallback((backupData: any) => {
-        const requiredKeys = ['products', 'preferences', 'ignoredProductIds', 'categories', 'movements'];
-        const missingKeys = requiredKeys.filter(key => !(key in backupData));
-
-        if (missingKeys.length > 0) {
-          alert(`El archivo de respaldo es inválido. Faltan las claves: ${missingKeys.join(', ')}`);
-          return;
-        }
-
-        changeDoc(d => {
-            d.products = backupData.products || [];
-            d.preferences = backupData.preferences || initialPreferences;
-            d.ignoredProductIds = backupData.ignoredProductIds || ['banner'];
-            d.allCategories = backupData.categories || INITIAL_CATEGORIES;
-            d.movements = backupData.movements || {};
-            d.manualMovements = backupData.manualMovements || [];
-            d.auditLog = backupData.auditLog || [];
-            d.initialized = true; // Ensure restored data is marked as initialized
-        });
-        alert('¡Restauración completada con éxito!');
-    }, [changeDoc]);
+    }, [handle]);
     
+    const resetAllData = useCallback(() => {
+        handle.change(d => {
+            d.products = [];
+            d.preferences = { viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false };
+            d.ignoredProductIds = ['banner'];
+            d.allCategories = INITIAL_CATEGORIES;
+            d.movements = {};
+            d.manualMovements = [];
+            d.auditLog = [];
+        });
+        localStorage.removeItem(LOCAL_STORAGE_KEYS.DATA_VERSION); // Clave no gestionada por el repo
+    }, [handle]);
+
     const updatePreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
-      changeDoc(d => {
-        if (!d.preferences || typeof d.preferences !== 'object' || Array.isArray(d.preferences)) d.preferences = initialPreferences;
-        d.preferences[key] = value;
-      });
-    }, [changeDoc]);
+        handle.change(d => {
+            d.preferences[key] = value;
+        });
+    }, [handle]);
     
-    const handleProductDelete = useCallback((productId: string) => {
-        changeDoc(d => {
-            if (!Array.isArray(d.products)) return;
+    const deleteProduct = useCallback((productId: string) => {
+        handle.change(d => {
             const productToDelete = d.products.find(p => p.id === productId);
-            if (productToDelete) logAction('product_delete', `Producto eliminado: "${productToDelete.title}"`);
+            if (productToDelete) {
+                 const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_delete', message: `Producto eliminado: "${productToDelete.title}"` };
+                 d.auditLog.unshift(logEntry);
+            }
             d.products = d.products.filter(p => p.id !== productId);
         });
-    }, [changeDoc, logAction]);
-    
-    const handleSaveMovement = useCallback((productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
-        changeDoc(d => {
-            if (!Array.isArray(d.products)) return;
-            const productIndex = d.products.findIndex(p => p.id === productId);
-            if (productIndex === -1) return;
-            const variantIndex = d.products[productIndex].variants.findIndex(v => v.id === variantId);
-            if (variantIndex === -1) return;
+    }, [handle]);
 
-            const variant = d.products[productIndex].variants[variantIndex];
-            const newStockValue = Math.max(0, variant.stock + movementData.change);
+    const saveMovement = useCallback((productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
+        handle.change(d => {
+            const product = d.products.find(p => p.id === productId);
+            if (!product) return;
+            const variant = product.variants.find(v => v.id === variantId);
+            if (!variant) return;
             
-            d.products[productIndex].variants[variantIndex].stock = newStockValue;
-
-            addMovement(variantId, { ...movementData, newStock: newStockValue });
+            const newStockValue = Math.max(0, variant.stock + movementData.change);
+            variant.stock = newStockValue;
+            addMovementInChangeBlock(d, variantId, { ...movementData, newStock: newStockValue });
         });
-    }, [changeDoc, addMovement]);
-    
-     const handleManualMovementSave = useCallback((movement: Omit<ManualMovement, 'id'>) => {
-        changeDoc(d => {
-            if (!Array.isArray(d.manualMovements)) d.manualMovements = [];
+    }, [handle]);
+
+    const saveManualMovement = useCallback((movement: Omit<ManualMovement, 'id'>) => {
+        handle.change(d => {
             d.manualMovements.push({ ...movement, id: `manual-${Date.now()}-${Math.random()}` });
         });
-    }, [changeDoc]);
-
-    const handleIgnoreProduct = useCallback((productId: string) => {
-        changeDoc(d => {
-            if (!Array.isArray(d.products) || !Array.isArray(d.ignoredProductIds)) return;
-            const productToIgnore = d.products.find(p => p.id === productId);
-            if (productToIgnore) logAction('product_ignore', `Producto ocultado: "${productToIgnore.title}"`);
-            if (!d.ignoredProductIds.includes(productId)) {
-                d.ignoredProductIds.push(productId);
-            }
-        });
-    }, [changeDoc, logAction]);
+    }, [handle]);
     
-    const handleRestoreProduct = useCallback((productId: string, productTitle: string) => {
-        changeDoc(d => {
-            if (!Array.isArray(d.ignoredProductIds)) return;
-            logAction('product_restore', `Producto restaurado: "${productTitle}"`);
+    const ignoreProduct = useCallback((productId: string, productTitle: string) => {
+        handle.change(d => {
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_ignore', message: `Producto ocultado: "${productTitle}"` };
+            d.auditLog.unshift(logEntry);
+            if (!d.ignoredProductIds.includes(productId)) d.ignoredProductIds.push(productId);
+        });
+    }, [handle]);
+    
+    const restoreProduct = useCallback((productId: string, productTitle: string) => {
+        handle.change(d => {
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_restore', message: `Producto restaurado: "${productTitle}"` };
+            d.auditLog.unshift(logEntry);
             d.ignoredProductIds = d.ignoredProductIds.filter(id => id !== productId);
         });
-    }, [changeDoc, logAction]);
-
-    const handleCategorySave = useCallback((newCategory: string) => {
-        changeDoc(d => {
-            const formatted = newCategory.trim().toLowerCase().replace(/\s+/g, '-');
-            if (!Array.isArray(d.allCategories)) d.allCategories = INITIAL_CATEGORIES;
+    }, [handle]);
+    
+    const saveCategory = useCallback((newCategory: string) => {
+        const formatted = newCategory.trim().toLowerCase().replace(/\s+/g, '-');
+        handle.change(d => {
             if (formatted && !d.allCategories.includes(formatted)) {
-                logAction('category_add', `Categoría añadida: "${formatted}"`);
+                const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'category_add', message: `Categoría añadida: "${formatted}"` };
+                d.auditLog.unshift(logEntry);
                 d.allCategories.push(formatted);
             }
         });
-    }, [changeDoc, logAction]);
+    }, [handle]);
     
-    const handleCsvImport = useCallback((updates: CsvUpdatePayload[]) => {
-      changeDoc(d => {
-        if (!Array.isArray(d.products)) return;
-        const updatesMap = new Map<string, CsvUpdatePayload>(updates.map(u => [u.variantId, u]));
-        
-        d.products.forEach(p => {
-          p.variants.forEach(v => {
-            if (updatesMap.has(v.id)) {
-              const update = updatesMap.get(v.id)!;
-              const originalStock = v.stock;
-              
-              if (update.newStock !== undefined && update.newStock !== originalStock) {
-                const change = update.newStock - originalStock;
-                addMovement(v.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: update.newStock, notes: 'Actualización masiva desde CSV' });
-                v.stock = update.newStock;
-              }
-              if (update.newPrice !== undefined) v.price = update.newPrice;
-              if (update.newCost !== undefined) v.cost = update.newCost;
-            }
-          });
+    const importCsvUpdates = useCallback((updates: { variantId: string; newPrice?: number; newCost?: number; newStock?: number; }[]) => {
+        handle.change(d => {
+            const updatesMap = new Map(updates.map(u => [u.variantId, u]));
+            d.products.forEach(p => {
+                p.variants.forEach(v => {
+                    if (updatesMap.has(v.id)) {
+                        const update = updatesMap.get(v.id)!;
+                        const originalStock = v.stock;
+                        if (update.newStock !== undefined && update.newStock !== originalStock) {
+                            const change = update.newStock - originalStock;
+                            addMovementInChangeBlock(d, v.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: update.newStock, notes: 'Actualización masiva desde CSV' });
+                        }
+                        if (update.newPrice !== undefined) v.price = update.newPrice;
+                        if (update.newCost !== undefined) v.cost = update.newCost;
+                        if (update.newStock !== undefined) v.stock = update.newStock;
+                    }
+                });
+            });
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'csv_update', message: `Actualizadas ${updates.length} variantes mediante CSV.` };
+            d.auditLog.unshift(logEntry);
         });
-      });
-      logAction('csv_update', `Actualizadas ${updates.length} variantes mediante CSV.`);
-      alert(`Actualización por CSV completada. Se modificaron ${updates.length} variantes.`);
-    }, [changeDoc, addMovement, logAction]);
-
+    }, [handle]);
     
+    const repairDuplicateVariantIds = useCallback(() => {
+        if (!doc) return { repairedCount: 0, duplicateIds: []};
+        
+        const variantIdCounts = new Map<string, number>();
+        doc.products.forEach(p => p.variants.forEach(v => variantIdCounts.set(v.id, (variantIdCounts.get(v.id) || 0) + 1)));
+        const duplicateIds = [...variantIdCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+
+        if (duplicateIds.length === 0) return { repairedCount: 0, duplicateIds: []};
+
+        let variantsRepairedCount = 0;
+        handle.change(d => {
+            duplicateIds.forEach(dupId => {
+                const productsWithDupIndices = d.products.map((p, index) => p.variants.some(v => v.id === dupId) ? index : -1).filter(index => index !== -1);
+                
+                productsWithDupIndices.slice(1).forEach(productIndex => {
+                    const productToFix = d.products[productIndex];
+                    const variantToFixIndex = productToFix.variants.findIndex(v => v.id === dupId);
+                    if (variantToFixIndex > -1) {
+                        const variantToFix = productToFix.variants[variantToFixIndex];
+                        const newId = `repaired-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                        
+                        addMovementInChangeBlock(d, newId, { timestamp: Date.now(), type: 'Inicial', change: variantToFix.stock, newStock: variantToFix.stock, notes: 'ID de variante reparado. Historial reiniciado.' });
+
+                        variantToFix.id = newId;
+                        variantsRepairedCount++;
+                    }
+                });
+            });
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'data_repair', message: `Reparación automática ejecutada. Se corrigieron ${variantsRepairedCount} variantes.` };
+            d.auditLog.unshift(logEntry);
+        });
+        return { repairedCount: variantsRepairedCount, duplicateIds };
+    }, [doc, handle]);
+
+    const mergeProducts = useCallback((primaryProductId: string, secondaryProductId: string) => {
+        handle.change(d => {
+            const primaryProduct = d.products.find(p => p.id === primaryProductId);
+            const secondaryProduct = d.products.find(p => p.id === secondaryProductId);
+            if (!primaryProduct || !secondaryProduct) return;
+
+            const mergedVariants = [...primaryProduct.variants, ...secondaryProduct.variants];
+            const variantNameCounts = new Map<string, number>();
+            mergedVariants.forEach(v => variantNameCounts.set(v.name, (variantNameCounts.get(v.name) || 0) + 1));
+            
+            primaryProduct.variants = mergedVariants.map(v => {
+              if ((variantNameCounts.get(v.name) || 0) > 1) {
+                const sourceProductTitle = secondaryProduct.variants.some(sv => sv.id === v.id) ? secondaryProduct.title.split(' ')[0] : primaryProduct.title.split(' ')[0];
+                return { ...v, name: `${v.name} (${sourceProductTitle})` };
+              }
+              return v;
+            });
+            
+            d.products = d.products.filter(p => p.id !== secondaryProductId);
+            
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_merge', message: `Productos fusionados: "${secondaryProduct.title}" en "${primaryProduct.title}".` };
+            d.auditLog.unshift(logEntry);
+        });
+    }, [handle]);
+
+    const bulkEditProducts = useCallback((selectedIds: Set<string>, changes: { category?: string; hintsToAdd?: string[] }) => {
+        handle.change(d => {
+            d.products.forEach(p => {
+                if (selectedIds.has(p.id)) {
+                    if (changes.category) p.category = changes.category;
+                    if (changes.hintsToAdd?.length) {
+                        const currentHints = new Set(p.imageHint || []);
+                        changes.hintsToAdd.forEach(h => currentHints.add(h));
+                        p.imageHint = Array.from(currentHints);
+                    }
+                }
+            });
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'bulk_edit', message: `Edición masiva aplicada a ${selectedIds.size} productos.` };
+            d.auditLog.unshift(logEntry);
+        });
+    }, [handle]);
+    
+    const bulkIgnoreProducts = useCallback((selectedIds: Set<string>) => {
+        handle.change(d => {
+            selectedIds.forEach(id => { if (!d.ignoredProductIds.includes(id)) d.ignoredProductIds.push(id); });
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'bulk_ignore', message: `Ocultados ${selectedIds.size} productos en lote.` };
+            d.auditLog.unshift(logEntry);
+        });
+    }, [handle]);
+    
+    const bulkDeleteProducts = useCallback((selectedIds: Set<string>) => {
+        handle.change(d => {
+            d.products = d.products.filter(p => !selectedIds.has(p.id));
+            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'bulk_delete', message: `Eliminados ${selectedIds.size} productos en lote.` };
+            d.auditLog.unshift(logEntry);
+        });
+    }, [handle]);
+
     return {
-        // Status
-        isReady,
-        // State
-        products,
-        preferences,
-        ignoredProductIds,
-        allCategories,
-        movements,
-        manualMovements,
-        auditLog,
-        // Actions
-        handleReset,
-        handleJsonLoad,
-        handleRestore,
-        updatePreference,
-        handleProductSave,
-        handleProductDelete,
-        handleSaveMovement,
-        handleManualMovementSave,
-        handleIgnoreProduct,
-        handleRestoreProduct,
-        handleCategorySave,
-        handleCsvImport,
-        logAction,
-        changeDoc, // Exposing this for complex direct mutations if needed
+        products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog,
+        logAction, handleProductSave, handleMultipleMovementsDelete, loadJsonData, resetAllData,
+        updatePreference, deleteProduct, saveMovement, saveManualMovement, ignoreProduct, restoreProduct,
+        saveCategory, importCsvUpdates, repairDuplicateVariantIds, mergeProducts, bulkEditProducts,
+        bulkIgnoreProducts, bulkDeleteProducts,
     };
 };
 
-// This hook remains for now but is unused by the main app. It could be removed.
+
+// --- Hook de Cálculo Financiero ---
 export const useFinancialSummary = (
     movements: Movements,
     manualMovements: ManualMovement[],

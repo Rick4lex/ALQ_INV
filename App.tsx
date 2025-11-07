@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useCallback, Suspense, lazy } from 'react';
-import { Product, UserPreferences, ModalState, Movement, ManualMovement, CsvUpdatePayload } from './types';
-import { useAppStore, useDocUrl } from './hooks/useLocalStorage';
+import React, { useState, useMemo, useCallback, Suspense, lazy, useEffect } from 'react';
+import { Product, UserPreferences, ModalState, Movement, ManualMovement } from './types';
+import { useAppStore } from './hooks/useLocalStorage';
+import { initializeRootDocHandle } from './lib/automerge-repo';
 import JsonLoader from './components/JsonLoader';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
@@ -10,10 +11,8 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { productSortComparator } from './utils';
 import FinancialPanel from './components/FinancialPanel';
 import BulkActionBar from './components/BulkActionBar';
-import SyncStatusIndicator from './components/SyncStatusIndicator';
 
 // Lazy load modals to improve initial load time
-const DocUrlManager = lazy(() => import('./components/DocUrlManager'));
 const ProductFormModal = lazy(() => import('./components/ProductFormModal'));
 const ConfirmDeleteModal = lazy(() => import('./components/ConfirmDeleteModal'));
 const ConfirmIgnoreModal = lazy(() => import('./components/ConfirmIgnoreModal'));
@@ -27,15 +26,21 @@ const AuditLogModal = lazy(() => import('./components/AuditLogModal'));
 const BulkEditModal = lazy(() => import('./components/BulkEditModal'));
 const DataImportModal = lazy(() => import('./components/DataImportModal'));
 
-const App: React.FC = () => {
-  const { docUrl, setDocUrl, createNewDoc, clearDocUrl } = useDocUrl();
+export type CsvUpdatePayload = {
+  variantId: string;
+  newPrice?: number;
+  newCost?: number;
+  newStock?: number;
+};
 
+const AppContent: React.FC = () => {
   const {
-    isReady, products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog,
-    handleReset, handleJsonLoad, handleRestore, updatePreference, handleProductSave, handleProductDelete,
-    handleSaveMovement, handleManualMovementSave, handleIgnoreProduct, handleRestoreProduct,
-    handleCategorySave, handleCsvImport, logAction, changeDoc,
-  } = useAppStore(docUrl);
+    products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog,
+    loadJsonData, resetAllData, updatePreference, deleteProduct, saveMovement, saveManualMovement,
+    ignoreProduct, restoreProduct, saveCategory, importCsvUpdates, repairDuplicateVariantIds,
+    mergeProducts, bulkEditProducts, bulkIgnoreProducts, bulkDeleteProducts,
+    handleProductSave, handleMultipleMovementsDelete,
+  } = useAppStore();
   
   const [modal, setModal] = useState<ModalState | null>(null);
   const [fullscreenData, setFullscreenData] = useState<{ images: string[]; index: number } | null>(null);
@@ -46,13 +51,6 @@ const App: React.FC = () => {
   
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-
-  const handleLeave = useCallback(() => {
-    if (window.confirm("¿Seguro que quieres desconectarte de este catálogo? Podrás volver a unirte si guardas la URL.")) {
-        clearDocUrl();
-        window.location.reload();
-    }
-  }, [clearDocUrl]);
 
   const allTags = useMemo(() => {
     if (!products) return [];
@@ -84,7 +82,13 @@ const App: React.FC = () => {
     }).sort(productSortComparator);
   }, [products, preferences, ignoredProductIds, fusionMode, selectedTags, selectedProductIds]);
 
-  const handleIgnoredChange = useCallback((show: boolean) => {
+  const handleReset = () => {
+    if (window.confirm('¿Estás seguro de que quieres borrar todos los datos? Esta acción es irreversible.')) {
+      resetAllData();
+    }
+  };
+
+  const handleIgnoredChange = (show: boolean) => {
     if (show) {
       if (window.confirm('¿Estás seguro de que quieres mostrar los productos ocultos? Esta vista es para gestión y puede incluir items que no están a la venta.')) {
         updatePreference('showIgnoredOnly', show);
@@ -92,7 +96,45 @@ const App: React.FC = () => {
     } else {
       updatePreference('showIgnoredOnly', show);
     }
-  }, [updatePreference]);
+  };
+
+  const handleProductDelete = (productId: string) => {
+    deleteProduct(productId);
+    setModal(null);
+  };
+  
+  const handleSaveMovementAndClose = (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
+    saveMovement(productId, variantId, movementData);
+
+    const product = products?.find(p => p.id === productId);
+    if(product) {
+      const newTotalStock = product.variants.reduce((sum, v) => sum + (v.id === variantId ? v.stock + movementData.change : v.stock), 0);
+      if (newTotalStock === 0 && preferences.showAvailableOnly) {
+          updatePreference('showAvailableOnly', false);
+      }
+    }
+  };
+
+  const handleManualMovementSave = (movement: Omit<ManualMovement, 'id'>) => {
+    saveManualMovement(movement);
+    setModal(null);
+  };
+
+  const handleIgnoreProduct = (product: Product) => {
+    ignoreProduct(product.id, product.title);
+    setModal(null);
+  };
+  
+  const handleRestoreProduct = (productToRestore: Product) => {
+    if (window.confirm(`¿Seguro que quieres restaurar "${productToRestore.title}"? Volverá a ser visible en el catálogo principal.`)) {
+        restoreProduct(productToRestore.id, productToRestore.title);
+    }
+  };
+
+  const handleCategorySave = (newCategory: string) => {
+    saveCategory(newCategory);
+    setModal(null);
+  };
 
   const handleBackupDownload = useCallback(() => {
     if (!window.confirm('¿Descargar una copia de seguridad completa?')) return;
@@ -107,81 +149,43 @@ const App: React.FC = () => {
     a.remove();
   }, [products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog]);
 
-    const handleRepairDuplicateVariantIds = useCallback(() => {
-    changeDoc(d => {
-        if (!d.products) return;
-        const variantIdCounts = new Map<string, number>();
-        d.products.forEach(p => p.variants.forEach(v => variantIdCounts.set(v.id, (variantIdCounts.get(v.id) || 0) + 1)));
+  const handleCsvImport = (updates: CsvUpdatePayload[]) => {
+    if (updates.length === 0) {
+      setModal(null);
+      return;
+    }
+    importCsvUpdates(updates);
+    setModal(null);
+    alert(`Actualización por CSV completada. Se modificaron ${updates.length} variantes.`);
+  };
 
-        const duplicateIds = [...variantIdCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+  const handleRepairDuplicateVariantIds = () => {
+    const { repairedCount, duplicateIds } = repairDuplicateVariantIds();
+    
+    if (duplicateIds.length === 0) {
+      alert("No se encontraron IDs de variantes duplicados. ¡Tus datos están en buen estado!");
+      return;
+    }
 
-        if (duplicateIds.length === 0) {
-          alert("No se encontraron IDs de variantes duplicados. ¡Tus datos están en buen estado!");
-          return;
-        }
+    if (!window.confirm(`Se encontraron ${duplicateIds.length} ID(s) de variante compartidos. ¿Deseas repararlos automáticamente?\n\nADVERTENCIA: El primer producto encontrado con un ID duplicado conservará el historial compartido. Los demás obtendrán un nuevo ID y su historial se reiniciará basado en su stock actual. Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    
+    alert(`Reparación completada. Se corrigieron ${repairedCount} variantes.`);
+  };
 
-        if (!window.confirm(`Se encontraron ${duplicateIds.length} ID(s) de variante compartidos... ¿Reparar automáticamente?`)) return;
-
-        let variantsRepairedCount = 0;
-        duplicateIds.forEach(dupId => {
-          const productsWithDup = d.products!.filter((p: Product) => p.variants.some(v => v.id === dupId));
-          productsWithDup.slice(1).forEach((productToFix: Product) => {
-            const variantToFix = productToFix.variants.find(v => v.id === dupId);
-            if (variantToFix) {
-              const newId = `repaired-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-              const oldStock = variantToFix.stock;
-              variantToFix.id = newId;
-              
-              if (!d.movements) d.movements = {};
-              d.movements[newId] = [{
-                id: `mov-repair-${Date.now()}`, variantId: newId, timestamp: Date.now(), type: 'Inicial',
-                change: oldStock, newStock: oldStock, notes: 'ID de variante reparado. Historial reiniciado.'
-              }];
-              variantsRepairedCount++;
-            }
-          });
-        });
-
-        logAction('data_repair', `Reparación automática ejecutada. Se corrigieron ${variantsRepairedCount} variantes.`);
-        alert(`Reparación completada. Se corrigieron ${variantsRepairedCount} variantes.`);
-    });
-  }, [changeDoc, logAction]);
-
-  const handleProductMerge = useCallback((primaryProductId: string, secondaryProductId: string) => {
-    changeDoc(d => {
-        if (!d.products) return;
-        const primaryProduct = d.products.find(p => p.id === primaryProductId);
-        const secondaryProduct = d.products.find(p => p.id === secondaryProductId);
-        if (!primaryProduct || !secondaryProduct) return;
-
-        const mergedVariants = [...primaryProduct.variants, ...secondaryProduct.variants];
-        const finalVariants = mergedVariants.map(v => ({ ...v })); // clone
-
-        const variantNameCounts = new Map<string, number>();
-        finalVariants.forEach(v => variantNameCounts.set(v.name, (variantNameCounts.get(v.name) || 0) + 1));
-        
-        finalVariants.forEach(v => {
-          if ((variantNameCounts.get(v.name) || 0) > 1) {
-            const sourceTitle = secondaryProduct.variants.some(sv => sv.id === v.id) ? secondaryProduct.title.split(' ')[0] : primaryProduct.title.split(' ')[0];
-            v.name = `${v.name} (${sourceTitle})`;
-          }
-        });
-        
-        primaryProduct.variants = finalVariants;
-        d.products = d.products.filter(p => p.id !== secondaryProductId);
-        logAction('product_merge', `Productos fusionados: "${secondaryProduct.title}" en "${primaryProduct.title}".`);
-    });
+  const handleProductMerge = (primaryProductId: string, secondaryProductId: string) => {
+    mergeProducts(primaryProductId, secondaryProductId);
     setModal(null);
     setFusionMode(false);
     setSelectedForFusion([]);
-  }, [changeDoc, logAction]);
+  };
 
   const handleImageClick = (images: string[]) => {
     const validImages = images.filter(Boolean);
     if (validImages.length > 0) setFullscreenData({ images: validImages, index: 0 });
   };
   
-  // --- Fusion Mode Logic ---
   const toggleFusionSelection = (productId: string) => {
     setSelectedForFusion(prev => {
         const newSelection = new Set(prev);
@@ -198,7 +202,6 @@ const App: React.FC = () => {
     }
   };
   
-  // --- Bulk Selection Logic ---
   const handleToggleSelection = (productId: string) => {
     setSelectedProductIds(prev => {
       const newSet = new Set(prev);
@@ -208,45 +211,22 @@ const App: React.FC = () => {
     });
   };
   
-  // --- Bulk Actions ---
   const handleBulkEditSave = (changes: { category?: string; hintsToAdd?: string[] }) => {
-    changeDoc(d => {
-      if (!d.products) return;
-      d.products.forEach(p => {
-        if (selectedProductIds.has(p.id)) {
-          if (changes.category) p.category = changes.category;
-          if (changes.hintsToAdd && changes.hintsToAdd.length > 0) {
-            const currentHints = new Set(p.imageHint || []);
-            changes.hintsToAdd.forEach(hint => currentHints.add(hint));
-            p.imageHint = Array.from(currentHints);
-          }
-        }
-      });
-      logAction('bulk_edit', `Edición masiva aplicada a ${selectedProductIds.size} productos.`);
-    });
+    bulkEditProducts(selectedProductIds, changes);
     setModal(null);
     setSelectedProductIds(new Set());
   };
 
   const handleBulkIgnore = () => {
     if (window.confirm(`¿Estás seguro de que quieres ocultar los ${selectedProductIds.size} productos seleccionados?`)) {
-        changeDoc(d => {
-            if (!d.ignoredProductIds) d.ignoredProductIds = [];
-            const newIgnored = new Set([...d.ignoredProductIds, ...selectedProductIds]);
-            d.ignoredProductIds = Array.from(newIgnored);
-        });
-        logAction('bulk_ignore', `Ocultados ${selectedProductIds.size} productos en lote.`);
+        bulkIgnoreProducts(selectedProductIds);
         setSelectedProductIds(new Set());
     }
   };
 
   const handleBulkDelete = () => {
     if (window.confirm(`¿Estás seguro de que quieres eliminar permanentemente los ${selectedProductIds.size} productos seleccionados?`)) {
-        changeDoc(d => {
-            if (!d.products) return;
-            d.products = d.products.filter(p => !selectedProductIds.has(p.id));
-        });
-        logAction('bulk_delete', `Eliminados ${selectedProductIds.size} productos en lote.`);
+        bulkDeleteProducts(selectedProductIds);
         setSelectedProductIds(new Set());
     }
   };
@@ -261,178 +241,169 @@ const App: React.FC = () => {
     });
   };
 
-  const mainContent = () => {
-    if (!docUrl) {
-      return (
-        <Suspense fallback={
-          <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900">
-            <p className="text-white text-lg animate-pulse">Cargando Módulo de Acceso...</p>
-          </div>
-        }>
-          <DocUrlManager onSetUrl={setDocUrl} onCreateNew={createNewDoc} />
-        </Suspense>
-      );
+  if (products === null || (products.length === 0 && Object.keys(movements).length === 0)) {
+    return <JsonLoader onJsonLoad={loadJsonData} />;
+  }
+  
+  const isSelectionMode = selectedProductIds.size > 0;
+
+  const renderModal = () => {
+    if (!modal) return null;
+    const commonProps = { isOpen: true, onClose: () => setModal(null) };
+    switch (modal.type) {
+      case 'add': return <ProductFormModal {...commonProps} onSave={p => { handleProductSave(p); setModal(null); }} categories={allCategories} />;
+      case 'edit': return <ProductFormModal {...commonProps} onSave={p => { handleProductSave(p); setModal(null); }} productToEdit={modal.product} categories={allCategories} />;
+      case 'delete': return <ConfirmDeleteModal {...commonProps} onConfirm={() => handleProductDelete(modal.product.id)} productName={modal.product.title} />;
+      case 'ignore': return <ConfirmIgnoreModal {...commonProps} onConfirm={() => handleIgnoreProduct(modal.product)} productName={modal.product.title} />;
+      case 'export': return <ExportModal {...commonProps} format={modal.format} products={products} ignoredProductIds={ignoredProductIds} />;
+      case 'add-category': return <AddCategoryModal {...commonProps} onSave={handleCategorySave} existingCategories={allCategories} />;
+      case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovementAndClose} onDeleteMovements={handleMultipleMovementsDelete} />;
+      case 'manual-movement': return <ManualMovementModal {...commonProps} onSave={handleManualMovementSave} />;
+      case 'tools': return <ToolsModal {...commonProps} onRepair={handleRepairDuplicateVariantIds} onFusionStart={() => { setFusionMode(true); setModal(null); }} onShowAuditLog={() => setModal({ type: 'audit-log' })} />;
+      case 'fusion': return <FusionModal {...commonProps} productsToFuse={modal.products} onMerge={handleProductMerge} />;
+      case 'audit-log': return <AuditLogModal {...commonProps} auditLog={auditLog} />;
+      case 'bulk-edit': return <BulkEditModal {...commonProps} productsCount={modal.productsCount} categories={allCategories} onSave={handleBulkEditSave} />;
+      case 'import-csv': return <DataImportModal {...commonProps} products={products} onImport={handleCsvImport} />;
+      default: return null;
     }
-  
-    if (!isReady) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900">
-          <p className="text-white text-lg animate-pulse">Cargando y sincronizando datos...</p>
-        </div>
-      );
-    }
-  
-    if (products === null) return <JsonLoader onJsonLoad={handleJsonLoad} onRestore={handleRestore} />;
-  
-    const isSelectionMode = selectedProductIds.size > 0;
-    
-    const handleMultipleMovementsDelete = useCallback((variantId: string, movementIdsToDelete: string[]) => {
-          changeDoc(d => {
-              if (!d.movements || !d.products) return;
-              const originalMovements = d.movements[variantId] || [];
-              const remainingMovements = originalMovements.filter(m => !movementIdsToDelete.includes(m.id));
-              
-              let currentStock = 0;
-              const recalculatedMovements = remainingMovements.sort((a, b) => a.timestamp - b.timestamp).map(m => {
-                  currentStock = m.type === 'Inicial' ? m.change : currentStock + m.change;
-                  currentStock = Math.max(0, currentStock);
-                  return { ...m, newStock: currentStock };
-              });
-  
-              const finalStock = recalculatedMovements.length > 0 ? recalculatedMovements[recalculatedMovements.length - 1].newStock : 0;
-  
-              d.products.forEach(p => {
-                  p.variants.forEach(v => {
-                      if (v.id === variantId) v.stock = finalStock;
-                  });
-              });
-              d.movements[variantId] = recalculatedMovements;
-          });
-      }, [changeDoc]);
-  
-    const renderModal = () => {
-      if (!modal) return null;
-      const commonProps = { isOpen: true, onClose: () => setModal(null) };
-      switch (modal.type) {
-        case 'add': return <ProductFormModal {...commonProps} onSave={p => { handleProductSave(p); setModal(null); }} categories={allCategories} />;
-        case 'edit': return <ProductFormModal {...commonProps} onSave={p => { handleProductSave(p); setModal(null); }} productToEdit={modal.product} categories={allCategories} />;
-        case 'delete': return <ConfirmDeleteModal {...commonProps} onConfirm={() => { handleProductDelete(modal.product.id); setModal(null); }} productName={modal.product.title} />;
-        case 'ignore': return <ConfirmIgnoreModal {...commonProps} onConfirm={() => { handleIgnoreProduct(modal.product.id); setModal(null); }} productName={modal.product.title} />;
-        case 'export': return <ExportModal {...commonProps} format={modal.format} products={products} ignoredProductIds={ignoredProductIds} />;
-        case 'add-category': return <AddCategoryModal {...commonProps} onSave={cat => { handleCategorySave(cat); setModal(null); }} existingCategories={allCategories} />;
-        case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} onDeleteMovements={handleMultipleMovementsDelete} />;
-        case 'manual-movement': return <ManualMovementModal {...commonProps} onSave={mov => { handleManualMovementSave(mov); setModal(null); }} />;
-        case 'tools': return <ToolsModal {...commonProps} onRepair={handleRepairDuplicateVariantIds} onFusionStart={() => { setFusionMode(true); setModal(null); }} onShowAuditLog={() => setModal({ type: 'audit-log' })} onReset={handleReset} />;
-        case 'fusion': return <FusionModal {...commonProps} productsToFuse={modal.products} onMerge={handleProductMerge} />;
-        case 'audit-log': return <AuditLogModal {...commonProps} auditLog={auditLog} />;
-        case 'bulk-edit': return <BulkEditModal {...commonProps} productsCount={modal.productsCount} categories={allCategories} onSave={handleBulkEditSave} />;
-        case 'import-csv': return <DataImportModal {...commonProps} products={products} onImport={updates => { handleCsvImport(updates); setModal(null); }} />;
-        default: return null;
-      }
-    };
-  
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
-        <div className={currentView === 'catalog' ? "pb-40 md:pb-24" : ""}>
-          {currentView === 'catalog' && (
-            <Header 
-              onViewModeChange={(mode) => updatePreference('viewMode', mode)}
-              onAddProduct={() => setModal({ type: 'add' })}
-              onAddCategory={() => setModal({ type: 'add-category' })}
-              onLeave={handleLeave}
-              docUrl={docUrl}
-              onNavigateToFinancials={() => setCurrentView('financials')}
-              onOpenTools={() => setModal({ type: 'tools' })}
-              isSpecialMode={fusionMode || isSelectionMode}
-            />
-          )}
-          <main>
-             {currentView === 'catalog' ? (
-              <div className="container mx-auto px-4 py-6">
-                <FilterBar 
-                  {...preferences} 
-                  showIgnoredOnly={!!preferences.showIgnoredOnly}
-                  onSearchChange={term => updatePreference('searchTerm', term)} 
-                  onAvailabilityChange={show => updatePreference('showAvailableOnly', show)}
-                  onIgnoredChange={handleIgnoredChange}
-                  onCategoryChange={cat => updatePreference('selectedCategory', cat)} 
-                  productCount={filteredProducts.length} 
-                  categories={allCategories}
-                  isFusionMode={fusionMode}
-                  selectedForFusionCount={selectedForFusion.length}
-                  onCancelFusion={() => { setFusionMode(false); setSelectedForFusion([]); }}
-                  onStartFusion={startFusion}
-                  isSelectionMode={isSelectionMode}
-                  allTags={allTags}
-                  selectedTags={selectedTags}
-                  onSelectedTagsChange={setSelectedTags}
-                />
-                <ProductDisplay 
-                  products={filteredProducts} 
-                  viewMode={preferences.viewMode} 
-                  onEdit={product => setModal({ type: 'edit', product })} 
-                  onDelete={product => setModal({ type: 'delete', product })} 
-                  onImageClick={handleImageClick} 
-                  onIgnore={product => setModal({ type: 'ignore', product })} 
-                  onRestore={product => handleRestoreProduct(product.id, product.title)}
-                  onMovement={product => setModal({ type: 'movements', product })}
-                  isIgnoredView={!!preferences.showIgnoredOnly}
-                  isFusionMode={fusionMode}
-                  selectedForFusion={selectedForFusion}
-                  onSelectForFusion={toggleFusionSelection}
-                  selectedProductIds={selectedProductIds}
-                  onToggleSelection={handleToggleSelection}
-                />
-              </div>
-             ) : (
-               <FinancialPanel 
-                  onBack={() => setCurrentView('catalog')} 
-                  products={products} 
-                  movements={movements} 
-                  manualMovements={manualMovements} 
-                  onAddManualMovement={() => setModal({ type: 'manual-movement' })}
-                  onOpenImportModal={() => setModal({ type: 'import-csv' })}
-                  onExportCsv={() => setModal({ type: 'export', format: 'csv' })}
-               />
-             )}
-          </main>
-        </div>
-        {currentView === 'catalog' && !fusionMode && !isSelectionMode && <Footer onExport={format => setModal({ type: 'export', format })} onBackup={handleBackupDownload}/>}
-        {currentView === 'catalog' && isSelectionMode && (
-            <BulkActionBar 
-              count={selectedProductIds.size}
-              onClear={() => setSelectedProductIds(new Set())}
-              onBulkEdit={() => setModal({ type: 'bulk-edit', productsCount: selectedProductIds.size })}
-              onBulkIgnore={handleBulkIgnore}
-              onBulkDelete={handleBulkDelete}
-            />
-        )}
-        <Suspense fallback={
-          <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="text-white text-lg animate-pulse">Cargando Módulo...</div>
-          </div>
-        }>
-          {renderModal()}
-        </Suspense>
-        {fullscreenData && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenData(null)}>
-              <button onClick={() => setFullscreenData(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20"><X size={28} /></button>
-              {fullscreenData.images.length > 1 && (
-                  <>
-                      <button onClick={e => { e.stopPropagation(); changeFullscreenImage('prev'); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20"><ChevronLeft size={32} /></button>
-                      <button onClick={e => { e.stopPropagation(); changeFullscreenImage('next'); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20"><ChevronRight size={32} /></button>
-                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/50 text-white text-sm rounded-full">{fullscreenData.index + 1} / {fullscreenData.images.length}</div>
-                  </>
-              )}
-            <img src={fullscreenData.images[fullscreenData.index]} alt="Fullscreen view" className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
-          </div>
-        )}
-        <SyncStatusIndicator />
-      </div>
-    );
   };
 
-  return mainContent();
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
+      <div className={currentView === 'catalog' ? "pb-40 md:pb-24" : ""}>
+        {currentView === 'catalog' && (
+          <Header 
+            onViewModeChange={(mode: 'grid' | 'list') => updatePreference('viewMode', mode)}
+            onAddProduct={() => setModal({ type: 'add' })}
+            onAddCategory={() => setModal({ type: 'add-category' })}
+            onReset={handleReset}
+            onNavigateToFinancials={() => setCurrentView('financials')}
+            onOpenTools={() => setModal({ type: 'tools' })}
+            isSpecialMode={fusionMode || isSelectionMode}
+          />
+        )}
+        <main>
+           {currentView === 'catalog' ? (
+            <div className="container mx-auto px-4 py-6">
+              <FilterBar 
+                {...preferences} 
+                showIgnoredOnly={!!preferences.showIgnoredOnly}
+                onSearchChange={term => updatePreference('searchTerm', term)} 
+                onAvailabilityChange={show => updatePreference('showAvailableOnly', show)}
+                onIgnoredChange={handleIgnoredChange}
+                onCategoryChange={cat => updatePreference('selectedCategory', cat)} 
+                productCount={filteredProducts.length} 
+                categories={allCategories}
+                isFusionMode={fusionMode}
+                selectedForFusionCount={selectedForFusion.length}
+                onCancelFusion={() => { setFusionMode(false); setSelectedForFusion([]); }}
+                onStartFusion={startFusion}
+                isSelectionMode={isSelectionMode}
+                allTags={allTags}
+                selectedTags={selectedTags}
+                onSelectedTagsChange={setSelectedTags}
+              />
+              <ProductDisplay 
+                products={filteredProducts} 
+                viewMode={preferences.viewMode} 
+                onEdit={product => setModal({ type: 'edit', product })} 
+                onDelete={product => setModal({ type: 'delete', product })} 
+                onImageClick={handleImageClick} 
+                onIgnore={product => setModal({ type: 'ignore', product })} 
+                onRestore={handleRestoreProduct}
+                onMovement={product => setModal({ type: 'movements', product })}
+                isIgnoredView={!!preferences.showIgnoredOnly}
+                isFusionMode={fusionMode}
+                selectedForFusion={selectedForFusion}
+                onSelectForFusion={toggleFusionSelection}
+                selectedProductIds={selectedProductIds}
+                onToggleSelection={handleToggleSelection}
+              />
+            </div>
+           ) : (
+             <FinancialPanel 
+                onBack={() => setCurrentView('catalog')} 
+                products={products} 
+                movements={movements} 
+                manualMovements={manualMovements} 
+                onAddManualMovement={() => setModal({ type: 'manual-movement' })}
+                onOpenImportModal={() => setModal({ type: 'import-csv' })}
+                onExportCsv={() => setModal({ type: 'export', format: 'csv' })}
+             />
+           )}
+        </main>
+      </div>
+      {currentView === 'catalog' && !fusionMode && !isSelectionMode && <Footer onExport={format => setModal({ type: 'export', format })} onBackup={handleBackupDownload}/>}
+      {currentView === 'catalog' && isSelectionMode && (
+          <BulkActionBar 
+            count={selectedProductIds.size}
+            onClear={() => setSelectedProductIds(new Set())}
+            onBulkEdit={() => setModal({ type: 'bulk-edit', productsCount: selectedProductIds.size })}
+            onBulkIgnore={handleBulkIgnore}
+            onBulkDelete={handleBulkDelete}
+          />
+      )}
+      <Suspense fallback={
+        <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="text-white text-lg animate-pulse">Cargando Módulo...</div>
+        </div>
+      }>
+        {renderModal()}
+      </Suspense>
+      {fullscreenData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenData(null)}>
+            <button onClick={() => setFullscreenData(null)} className="absolute top-4 right-4 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20"><X size={28} /></button>
+            {fullscreenData.images.length > 1 && (
+                <>
+                    <button onClick={e => { e.stopPropagation(); changeFullscreenImage('prev'); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20"><ChevronLeft size={32} /></button>
+                    <button onClick={e => { e.stopPropagation(); changeFullscreenImage('next'); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors z-20"><ChevronRight size={32} /></button>
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/50 text-white text-sm rounded-full">{fullscreenData.index + 1} / {fullscreenData.images.length}</div>
+                </>
+            )}
+          <img src={fullscreenData.images[fullscreenData.index]} alt="Fullscreen view" className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const App: React.FC = () => {
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    initializeRootDocHandle()
+      .then(() => setIsInitialized(true))
+      .catch(e => {
+        console.error("Failed to initialize Automerge repo:", e);
+        setError(e);
+      });
+  }, []);
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white p-4">
+        <div className="text-center bg-red-900/50 p-8 rounded-lg border border-red-500/30">
+          <h1 className="text-2xl font-bold text-red-400">Error de Inicialización</h1>
+          <p className="mt-2 text-gray-300">No se pudo cargar la base de datos de la aplicación.</p>
+          <p className="mt-1 text-gray-400">Por favor, intenta refrescar la página. Si el problema persiste, contacta a soporte.</p>
+          <pre className="mt-4 text-left text-xs bg-black/30 p-4 rounded overflow-auto max-h-40">{error.message}</pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900">
+        <div className="text-white text-xl font-semibold animate-pulse">
+          Inicializando Alquima Mizu...
+        </div>
+      </div>
+    );
+  }
+
+  return <AppContent />;
 };
 
 export default App;

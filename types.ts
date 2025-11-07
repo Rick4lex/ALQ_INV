@@ -1,5 +1,3 @@
-
-
 export interface Movement {
   id: string;
   variantId: string;
@@ -39,7 +37,6 @@ export interface Product {
   imageUrls: string[];
   imageHint: string[];
   variants: Variant[];
-  available?: boolean;
 }
 
 export type Movements = Record<string, Movement[]>; // Keyed by variantId
@@ -75,22 +72,3 @@ export type ModalState =
   | { type: 'audit-log' }
   | { type: 'bulk-edit'; productsCount: number }
   | { type: 'import-csv' };
-  
-// FIX: Export CsvUpdatePayload interface for CSV import functionality.
-export interface CsvUpdatePayload {
-  variantId: string;
-  newPrice?: number;
-  newCost?: number;
-  newStock?: number;
-}
-  
-export interface AppDoc {
-  initialized?: boolean;
-  products: Product[] | null;
-  preferences: UserPreferences;
-  ignoredProductIds: string[];
-  allCategories: string[];
-  movements: Movements;
-  manualMovements: ManualMovement[];
-  auditLog: AuditEntry[];
-}

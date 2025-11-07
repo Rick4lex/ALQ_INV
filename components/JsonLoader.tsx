@@ -5,7 +5,6 @@ import RestoreModal from './RestoreModal';
 
 interface JsonLoaderProps {
   onJsonLoad: (data: Product[]) => void;
-  onRestore: (backupData: any) => void;
 }
 
 const placeholderData = {
@@ -34,7 +33,7 @@ const placeholderData = {
 const placeholderJson = JSON.stringify(placeholderData, null, 2);
 
 
-const JsonLoader: React.FC<JsonLoaderProps> = ({ onJsonLoad, onRestore }) => {
+const JsonLoader: React.FC<JsonLoaderProps> = ({ onJsonLoad }) => {
   const [jsonInput, setJsonInput] = useState(placeholderJson);
   const [error, setError] = useState('');
   const [isRestoreModalOpen, setRestoreModalOpen] = useState(false);
@@ -125,7 +124,7 @@ const JsonLoader: React.FC<JsonLoaderProps> = ({ onJsonLoad, onRestore }) => {
             <p><span className="font-semibold text-gray-300">Restaurar Backup:</span> Carga un archivo de backup completo generado por esta aplicación.</p>
         </div>
       </div>
-      <RestoreModal isOpen={isRestoreModalOpen} onClose={() => setRestoreModalOpen(false)} onRestore={onRestore} />
+      <RestoreModal isOpen={isRestoreModalOpen} onClose={() => setRestoreModalOpen(false)} />
     </div>
   );
 };

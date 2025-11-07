@@ -1,14 +1,14 @@
 import React, { useState, DragEvent } from 'react';
 import Modal from './Modal';
+import { LOCAL_STORAGE_KEYS, DATA_VERSION } from '../constants';
 import { UploadCloud, FileJson, X } from 'lucide-react';
 
 interface RestoreModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRestore: (backupData: any) => void;
 }
 
-const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore }) => {
+const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -60,8 +60,28 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore 
       try {
         const jsonInput = e.target?.result as string;
         const backupData = JSON.parse(jsonInput);
-        onRestore(backupData);
-        onClose();
+        const requiredKeys = ['products', 'preferences', 'ignoredProductIds', 'categories', 'movements'];
+        const missingKeys = requiredKeys.filter(key => !(key in backupData));
+
+        if (missingKeys.length > 0) {
+          setError(`El archivo de respaldo es inválido. Faltan las claves: ${missingKeys.join(', ')}`);
+          return;
+        }
+
+        localStorage.setItem(LOCAL_STORAGE_KEYS.PRODUCTS, JSON.stringify(backupData.products));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.PREFERENCES, JSON.stringify(backupData.preferences));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, JSON.stringify(backupData.ignoredProductIds));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.CATEGORIES, JSON.stringify(backupData.categories));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.MOVEMENTS, JSON.stringify(backupData.movements || {}));
+        localStorage.setItem(LOCAL_STORAGE_KEYS.MANUAL_MOVEMENTS, JSON.stringify(backupData.manualMovements || []));
+        
+        // Set data version to latest to avoid re-running migrations
+        localStorage.setItem(LOCAL_STORAGE_KEYS.DATA_VERSION, String(DATA_VERSION));
+
+
+        alert('¡Restauración completada con éxito! La aplicación se recargará.');
+        window.location.reload();
+
       } catch (err) {
         setError('Error al procesar el archivo. Asegúrate de que es un archivo de respaldo válido.');
       }
@@ -77,7 +97,7 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore 
       <div className="p-6 space-y-4">
         <p className="text-sm text-gray-300">
           Selecciona o arrastra tu archivo de respaldo (.json) para restaurar los datos.
-          Esta acción sobreescribirá todos los datos actuales.
+          Esta acción sobreescribirá todos los datos actuales y recargará la aplicación.
         </p>
 
         {!file ? (
@@ -119,7 +139,7 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore 
             Cancelar
           </button>
           <button onClick={handleRestore} disabled={!file} className="py-2 px-4 bg-brand-green hover:bg-green-600 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            Restaurar Datos
+            Restaurar y Recargar
           </button>
         </div>
       </div>
