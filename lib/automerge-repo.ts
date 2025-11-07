@@ -1,5 +1,5 @@
 import { Repo, DocHandle, DocumentId } from "@automerge/automerge-repo";
-import { LocalStorageStoreAdapter } from "@automerge/automerge-repo-storage-localstorage";
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel";
 
 import {
@@ -26,8 +26,8 @@ export interface AppDoc {
 const repo = new Repo({
   // The BroadcastChannel network adapter allows for real-time sync between browser tabs.
   network: [new BroadcastChannelNetworkAdapter()],
-  // The LocalStorage storage adapter persists the repo's state, making it available offline.
-  storage: new LocalStorageStoreAdapter(),
+  // The IndexedDB storage adapter persists the repo's state, making it available offline and is more robust than localStorage.
+  storage: new IndexedDBStorageAdapter(),
 });
 
 // A variable to hold our single document handle and a promise for its initialization.
@@ -66,8 +66,8 @@ export const initializeRootDocHandle = (): Promise<DocHandle<AppDoc>> => {
   rootDocHandlePromise = (async () => {
     const docId = "alkima-mizu-automerge-doc" as DocumentId;
     
-    // `repo.find` is synchronous and returns a handle immediately.
-    const handle = repo.find<AppDoc>(docId);
+    // In older versions of automerge-repo, `find` is async. Awaiting it ensures we have a DocHandle.
+    const handle = await repo.find<AppDoc>(docId);
   
     // Use whenReady() to wait for the document to be loaded from storage or network.
     await handle.whenReady();

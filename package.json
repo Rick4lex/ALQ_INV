@@ -14,7 +14,7 @@
     "@automerge/automerge": "^2.2.0",
     "@automerge/automerge-repo": "^1.2.1",
     "@automerge/automerge-repo-network-broadcastchannel": "^1.2.1",
-    "@automerge/automerge-repo-storage-localstorage": "^1.2.1",
+    "@automerge/automerge-repo-storage-indexeddb": "^1.2.1",
     "lucide-react": "^0.395.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
