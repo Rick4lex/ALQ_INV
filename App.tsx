@@ -1,4 +1,3 @@
-
 import React, { useMemo, Suspense, lazy } from 'react';
 import { useAppContext } from './contexts/AppContext';
 import JsonLoader from './components/JsonLoader';
@@ -107,8 +106,8 @@ const App: React.FC = () => {
                                 {...commonProps}
                                 title="Confirmar Eliminación"
                                 message={<>¿Estás seguro de que quieres eliminar el producto "<strong>{modal.product.title}</strong>"? Esta acción no se puede deshacer.</>}
-                                onConfirm={() => {
-                                    handleProductDelete(modal.product.id);
+                                onConfirm={async () => {
+                                    await handleProductDelete(modal.product.id);
                                     setModal(null);
                                 }}
                                 confirmText="Eliminar"
@@ -118,8 +117,8 @@ const App: React.FC = () => {
                                 {...commonProps}
                                 title="Confirmar Ocultar Producto"
                                 message={<>¿Estás seguro de que quieres ocultar el producto "<strong>{modal.product.title}</strong>"? El producto no aparecerá en la vista principal. Podrás verlo y restaurarlo desde la vista de 'Ocultos'.</>}
-                                onConfirm={() => {
-                                    handleIgnoreProduct(modal.product.id);
+                                onConfirm={async () => {
+                                    await handleIgnoreProduct(modal.product.id);
                                     setModal(null);
                                 }}
                                 confirmText="Confirmar y Ocultar"

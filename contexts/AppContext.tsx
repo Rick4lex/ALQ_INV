@@ -44,14 +44,14 @@ interface AppContextType extends AppStoreType {
   selectedTags: string[];
   setSelectedTags: React.Dispatch<React.SetStateAction<string[]>>;
   handleTextLoad: (jsonString: string) => void;
-  handleRestoreBackup: (backupData: any) => void;
+  handleRestoreBackup: (backupData: any) => Promise<void>;
   handleReset: () => void;
   updatePreference: <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => void;
   handleIgnoredChange: (show: boolean) => void;
-  handleProductDelete: (productId: string) => void;
+  handleProductDelete: (productId: string) => Promise<void>;
   handleSaveMovement: (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => void;
   handleManualMovementSave: (movement: Omit<ManualMovement, 'id'>) => void;
-  handleIgnoreProduct: (productId: string) => void;
+  handleIgnoreProduct: (productId: string) => Promise<void>;
   handleRestoreProduct: (productToRestore: Product) => void;
   handleCategorySave: (newCategory: string) => void;
   handleBackupDownload: () => void;
@@ -162,44 +162,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [handleJsonLoad]);
 
 
-  const handleRestoreBackup = useCallback((backupData: any) => {
-    const requiredKeys = ['products', 'preferences', 'ignoredProductIds', 'categories', 'movements'];
-    const missingKeys = requiredKeys.filter(key => !(key in backupData));
+  const handleRestoreBackup = useCallback(async (backupData: any) => {
+    await (db as Dexie).transaction('rw', [
+        db.products,
+        db.preferences,
+        db.ignoredProductIds,
+        db.allCategories,
+        db.movements,
+        db.manualMovements,
+        db.auditLog,
+    ], async () => {
+        await Promise.all([
+            db.products.clear(),
+            db.preferences.clear(),
+            db.ignoredProductIds.clear(),
+            db.allCategories.clear(),
+            db.movements.clear(),
+            db.manualMovements.clear(),
+            db.auditLog.clear(),
+        ]);
 
-    if (missingKeys.length > 0) {
-      alert(`El archivo de respaldo es inválido. Faltan las claves: ${missingKeys.join(', ')}`);
-      return;
-    }
-
-    setModal({
-        type: 'confirm',
-        title: 'Confirmar Restauración',
-        message: '¿Estás seguro de que quieres restaurar desde este archivo? Todos los datos actuales serán eliminados y reemplazados por los del backup. Esta acción es irreversible.',
-        onConfirm: async () => {
-            await (db as Dexie).transaction('rw', ...db.tables, async () => {
-                // Clear all tables
-                for (const table of db.tables) {
-                    await table.clear();
-                }
-
-                // Restore data
-                await db.products.bulkPut(backupData.products);
-                await db.preferences.put({ ...backupData.preferences, key: 'user' });
-                await db.ignoredProductIds.bulkPut(backupData.ignoredProductIds.map((id: string) => ({ id })));
-                await db.allCategories.bulkPut(backupData.categories.map((id: string) => ({ id })));
-                const flatMovements = Object.values(backupData.movements || {}).flat();
-                await db.movements.bulkPut(flatMovements as Movement[]);
-                await db.manualMovements.bulkPut(backupData.manualMovements || []);
-                await db.auditLog.bulkPut(backupData.auditLog || []);
-            });
-            logAction('backup_restore', 'La aplicación se restauró desde un archivo de backup.');
-            alert('¡Restauración completada con éxito! La aplicación se recargará.');
-            window.location.reload();
-        },
-        confirmText: 'Sí, Restaurar y Recargar',
-        confirmClass: 'bg-brand-red hover:bg-red-600',
+        await db.products.bulkPut(backupData.products);
+        await db.preferences.put({ ...backupData.preferences, key: 'user' });
+        await db.ignoredProductIds.bulkPut(backupData.ignoredProductIds.map((id: string) => ({ id })));
+        await db.allCategories.bulkPut(backupData.categories.map((id: string) => ({ id })));
+        const flatMovements = Object.values(backupData.movements || {}).flat();
+        await db.movements.bulkPut(flatMovements as Movement[]);
+        await db.manualMovements.bulkPut(backupData.manualMovements || []);
+        await db.auditLog.bulkPut(backupData.auditLog || []);
     });
-  }, [setModal, logAction]);
+    await logAction('backup_restore', 'La aplicación se restauró desde un archivo de backup.');
+    alert('¡Restauración completada con éxito! La aplicación se recargará.');
+    window.location.reload();
+  }, [logAction]);
 
   const handleReset = useCallback(() => {
     setModal({
@@ -236,7 +231,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         allVariantIds.forEach(vid => delete newMovements[vid]);
         return newMovements;
     });
-    logAction('product_delete', `Producto eliminado: "${productToDelete.title}" (ID: ${productId})`);
+    await logAction('product_delete', `Producto eliminado: "${productToDelete.title}" (ID: ${productId})`);
   }, [products, setProducts, setMovements, logAction]);
   
   const handleSaveMovement = useCallback(async (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
@@ -272,7 +267,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const newIgnored = [...ignoredProductIds, productId];
       await db.ignoredProductIds.add({ id: productId });
       setIgnoredProductIds(newIgnored);
-      logAction('product_ignore', `Producto ocultado: "${productToIgnore.title}" (ID: ${productId})`);
+      await logAction('product_ignore', `Producto ocultado: "${productToIgnore.title}" (ID: ${productId})`);
   }, [ignoredProductIds, products, setIgnoredProductIds, logAction]);
 
   const handleRestoreProduct = useCallback(async (productToRestore: Product) => {
@@ -284,7 +279,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const newIgnored = ignoredProductIds.filter(id => id !== productToRestore.id);
             await db.ignoredProductIds.delete(productToRestore.id);
             setIgnoredProductIds(newIgnored);
-            logAction('product_restore', `Producto restaurado: "${productToRestore.title}" (ID: ${productToRestore.id})`);
+            await logAction('product_restore', `Producto restaurado: "${productToRestore.title}" (ID: ${productToRestore.id})`);
             setModal(null);
         },
         confirmText: 'Restaurar',
@@ -298,7 +293,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const newCategories = [...allCategories, newCategory];
         await db.allCategories.add({ id: newCategory });
         setAllCategories(newCategories);
-        logAction('category_add', `Categoría añadida: "${newCategory}"`);
+        await logAction('category_add', `Categoría añadida: "${newCategory}"`);
     }
     setModal(null);
   }, [allCategories, setAllCategories, logAction, setModal]);
@@ -394,7 +389,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
         return mergedMovements;
     });
-    logAction('csv_update', `Se actualizaron ${updates.length} variantes desde un archivo CSV.`);
+    await logAction('csv_update', `Se actualizaron ${updates.length} variantes desde un archivo CSV.`);
     setModal(null);
   }, [products, setProducts, setMovements, logAction, setModal]);
 
@@ -438,7 +433,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     await db.products.bulkPut(newProducts);
     setProducts(newProducts);
-    logAction('data_repair', `Se repararon ${repairedCount} IDs de variantes duplicados.`);
+    await logAction('data_repair', `Se repararon ${repairedCount} IDs de variantes duplicados.`);
     alert(`Reparación completada. Se corrigieron ${repairedCount} IDs de variantes duplicados.`);
   }, [products, movements, setProducts, setMovements, logAction]);
 
@@ -461,7 +456,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             });
             
             setProducts(prev => prev?.filter(p => p.id !== secondaryProductId).map(p => p.id === primaryProductId ? updatedPrimaryProduct : p) || null);
-            logAction('product_merge', `Se fusionó "${secondaryProduct.title}" en "${primaryProduct.title}".`);
+            await logAction('product_merge', `Se fusionó "${secondaryProduct.title}" en "${primaryProduct.title}".`);
             setFusionMode(false);
             setSelectedForFusion([]);
             setModal(null);
@@ -519,7 +514,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const updatedMap = new Map(productsToUpdate.map(p => [p.id, p]));
         return prev?.map(p => updatedMap.get(p.id) || p) || null;
     });
-    logAction('bulk_edit', `Se editaron ${selectedProductIds.size} productos en lote.`);
+    await logAction('bulk_edit', `Se editaron ${selectedProductIds.size} productos en lote.`);
     setModal(null);
     setSelectedProductIds(new Set());
   }, [products, selectedProductIds, setProducts, logAction, setModal, setSelectedProductIds]);
@@ -533,7 +528,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const newIgnoredIds = [...ignoredProductIds, ...Array.from(selectedProductIds)];
             await db.ignoredProductIds.bulkPut(Array.from(selectedProductIds).map(id => ({ id })));
             setIgnoredProductIds(newIgnoredIds);
-            logAction('bulk_ignore', `Se ocultaron ${selectedProductIds.size} productos en lote.`);
+            await logAction('bulk_ignore', `Se ocultaron ${selectedProductIds.size} productos en lote.`);
             setModal(null);
             setSelectedProductIds(new Set());
         },
@@ -565,7 +560,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 return newMovements;
             });
 
-            logAction('bulk_delete', `Se eliminaron ${selectedProductIds.size} productos en lote.`);
+            await logAction('bulk_delete', `Se eliminaron ${selectedProductIds.size} productos en lote.`);
             setModal(null);
             setSelectedProductIds(new Set());
         },

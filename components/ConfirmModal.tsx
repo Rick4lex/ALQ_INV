@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Modal from './Modal';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface ConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   message: React.ReactNode;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   confirmText?: string;
   confirmClass?: string;
 }
@@ -21,11 +21,22 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmText = 'Confirmar', 
   confirmClass = 'bg-brand-red hover:bg-red-600' 
 }) => {
+  const [isConfirming, setIsConfirming] = useState(false);
   
-  // Fix: The caller is now responsible for closing the modal inside onConfirm.
-  const handleConfirm = () => {
-      onConfirm();
-  }
+  const handleConfirm = async () => {
+      if (isConfirming) return;
+      setIsConfirming(true);
+      try {
+          await onConfirm();
+      } catch (error) {
+          console.error("Confirmation action failed:", error);
+          // The caller's onConfirm function is responsible for closing the modal,
+          // so if it fails, we should re-enable the button.
+          setIsConfirming(false);
+      }
+      // Do not reset isConfirming here if the modal closes on success,
+      // as the component will unmount.
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="md">
@@ -41,11 +52,19 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </div>
         </div>
         <div className="flex justify-end gap-4 mt-6">
-          <button onClick={onClose} className="py-2 px-4 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
+          <button onClick={onClose} className="py-2 px-4 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors" disabled={isConfirming}>
             Cancelar
           </button>
-          <button onClick={handleConfirm} className={`py-2 px-4 rounded-md transition-colors ${confirmClass}`}>
-            {confirmText}
+          <button 
+            onClick={handleConfirm} 
+            className={`py-2 px-4 rounded-md transition-colors flex items-center justify-center min-w-[120px] ${confirmClass}`}
+            disabled={isConfirming}
+          >
+            {isConfirming ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+                confirmText
+            )}
           </button>
         </div>
       </div>

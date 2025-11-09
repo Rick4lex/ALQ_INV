@@ -92,7 +92,7 @@ export type ModalState =
       type: 'confirm'; 
       title: string; 
       message: React.ReactNode; 
-      onConfirm: () => void;
+      onConfirm: () => void | Promise<void>;
       confirmText?: string;
       confirmClass?: string;
     };
