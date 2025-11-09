@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Product, ViewMode } from '../types';
 import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History, CheckCircle, Square, CheckSquare } from 'lucide-react';

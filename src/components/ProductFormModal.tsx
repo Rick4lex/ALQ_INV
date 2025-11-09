@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Product, Variant } from '../types';
 import Modal from './Modal';

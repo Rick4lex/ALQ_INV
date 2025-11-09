@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Product } from '../types';
 import Modal from './Modal';
@@ -5,7 +6,7 @@ import { Copy, Check, Printer, Filter, ChevronDown, Download } from 'lucide-reac
 import CatalogPreview from './CatalogPreview';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { LOCAL_STORAGE_KEYS } from '../constants';
-import { formatVariantPrice, getSortPrice, generateCsvContent, transformProductForExport } from '../utils';
+import { formatPrice, transformProductForExport, formatVariantPrice, getSortPrice, generateCsvContent } from '../utils';
 import { useAppContext } from '../contexts/AppContext';
 
 interface ExportModalProps {
@@ -29,7 +30,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
   const [content, setContent] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Fix: Safely handle optional products array to prevent type errors.
+  // Fix: Safely handle optional products array to ensure correct type inference for allHints.
   const allHints = useMemo(() => Array.from(new Set((products || []).flatMap(p => p.imageHint || []).filter(Boolean))), [products]);
 
   useEffect(() => {

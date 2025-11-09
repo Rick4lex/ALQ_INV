@@ -1,3 +1,4 @@
+
 import React, { useState, DragEvent, useMemo } from 'react';
 import { Product, Variant, CsvUpdatePayload } from '../types';
 import Modal from './Modal';

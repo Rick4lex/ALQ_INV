@@ -49,13 +49,27 @@ export interface UserPreferences {
   selectedCategory: string;
   showAvailableOnly: boolean;
   showIgnoredOnly: boolean;
+  key?: 'user'; // Key for Dexie single-object table
 }
 
 export interface AuditEntry {
   id: string;
   timestamp: number;
-  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update';
+  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore';
   message: string;
+}
+
+// Fix: Add CsvUpdatePayload type for CSV import functionality.
+export interface CsvUpdatePayload {
+  variantId: string;
+  newPrice?: number;
+  newCost?: number;
+  newStock?: number;
+}
+
+// Type for storing string arrays in Dexie
+export interface StringId {
+  id: string;
 }
 
 export type ModalState =
@@ -71,4 +85,14 @@ export type ModalState =
   | { type: 'fusion'; products: [Product, Product] }
   | { type: 'audit-log' }
   | { type: 'bulk-edit'; productsCount: number }
-  | { type: 'import-csv' };
+  | { type: 'import-csv' }
+  | { type: 'load-from-text' }
+  | { type: 'restore-backup' }
+  | { 
+      type: 'confirm'; 
+      title: string; 
+      message: React.ReactNode; 
+      onConfirm: () => void;
+      confirmText?: string;
+      confirmClass?: string;
+    };

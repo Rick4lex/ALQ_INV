@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Movement } from '../types';
 import Modal from './Modal';
@@ -56,6 +57,7 @@ const MovementHistoryModal: React.FC<MovementHistoryModalProps> = ({ isOpen, onC
   };
 
   const handleDeleteSelected = () => {
+    // Fix: Remove window.confirm and delegate confirmation to the context handler.
     if (selectedMovementIds.size > 0) {
         handleMultipleMovementsDelete(selectedVariantId, Array.from(selectedMovementIds));
         setSelectedMovementIds(new Set());

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Product } from '../types';
 import Modal from './Modal';
@@ -16,6 +17,7 @@ const FusionModal: React.FC<FusionModalProps> = ({ isOpen, onClose, productsToFu
 
   const handleMerge = () => {
     const secondaryProductId = productsToFuse.find(p => p.id !== primaryProductId)!.id;
+    // Fix: Remove redundant window.confirm. The context handler already shows a confirmation modal.
     handleProductMerge(primaryProductId, secondaryProductId);
   };
 

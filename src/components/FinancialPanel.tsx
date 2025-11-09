@@ -1,5 +1,7 @@
+
 import React, { useState } from 'react';
 import { Movement, ManualMovement } from '../types';
+// Fix: Corrected the import path for the useFinancialSummary hook.
 import { useFinancialSummary } from '../hooks/useFinancialSummary';
 import { ArrowLeft, BarChart2, DollarSign, Package, TrendingUp, PieChart, Info, Minus, Plus, ArrowRight, FilePlus, Upload, Sheet } from 'lucide-react';
 import { formatCurrency } from '../utils';
@@ -61,11 +63,7 @@ const FinancialPanel: React.FC = () => {
                     <div className="flex items-center gap-2 flex-wrap">
                         <select value={dateRange} onChange={e => setDateRange(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:ring-purple-500">
                             <option value="thisMonth">Este Mes</option>
-                            <option value="lastMonth">Mes Pasado</option>
                             <option value="last30Days">Últimos 30 días</option>
-                            <option value="thisQuarter">Este Trimestre</option>
-                            <option value="lastQuarter">Trimestre Pasado</option>
-                            <option value="thisYear">Este Año</option>
                             <option value="custom">Personalizado</option>
                         </select>
                         {dateRange === 'custom' && (

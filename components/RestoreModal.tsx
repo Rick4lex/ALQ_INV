@@ -1,17 +1,28 @@
 import React, { useState, DragEvent } from 'react';
 import Modal from './Modal';
-import { LOCAL_STORAGE_KEYS, DATA_VERSION } from '../constants';
 import { UploadCloud, FileJson, X } from 'lucide-react';
 
 interface RestoreModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onRestore: (backupData: any) => void;
 }
 
-const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
+const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose, onRestore }) => {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  
+  const resetState = () => {
+    setFile(null);
+    setError('');
+    setIsDragging(false);
+  };
+
+  const handleClose = () => {
+    resetState();
+    onClose();
+  };
 
   const handleFileSelect = (selectedFile: File | null) => {
     if (selectedFile && selectedFile.type === 'application/json') {
@@ -28,23 +39,16 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
   };
   
   const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
+    e.preventDefault(); e.stopPropagation(); setIsDragging(true);
   };
   const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false);
   };
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
   };
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false);
     handleFileSelect(e.dataTransfer.files ? e.dataTransfer.files[0] : null);
   };
 
@@ -60,44 +64,21 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
       try {
         const jsonInput = e.target?.result as string;
         const backupData = JSON.parse(jsonInput);
-        const requiredKeys = ['products', 'preferences', 'ignoredProductIds', 'categories', 'movements'];
-        const missingKeys = requiredKeys.filter(key => !(key in backupData));
-
-        if (missingKeys.length > 0) {
-          setError(`El archivo de respaldo es inválido. Faltan las claves: ${missingKeys.join(', ')}`);
-          return;
-        }
-
-        localStorage.setItem(LOCAL_STORAGE_KEYS.PRODUCTS, JSON.stringify(backupData.products));
-        localStorage.setItem(LOCAL_STORAGE_KEYS.PREFERENCES, JSON.stringify(backupData.preferences));
-        localStorage.setItem(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, JSON.stringify(backupData.ignoredProductIds));
-        localStorage.setItem(LOCAL_STORAGE_KEYS.CATEGORIES, JSON.stringify(backupData.categories));
-        localStorage.setItem(LOCAL_STORAGE_KEYS.MOVEMENTS, JSON.stringify(backupData.movements || {}));
-        localStorage.setItem(LOCAL_STORAGE_KEYS.MANUAL_MOVEMENTS, JSON.stringify(backupData.manualMovements || []));
-        
-        // Set data version to latest to avoid re-running migrations
-        localStorage.setItem(LOCAL_STORAGE_KEYS.DATA_VERSION, String(DATA_VERSION));
-
-
-        alert('¡Restauración completada con éxito! La aplicación se recargará.');
-        window.location.reload();
-
+        onRestore(backupData); // Delegate data handling to context
       } catch (err) {
         setError('Error al procesar el archivo. Asegúrate de que es un archivo de respaldo válido.');
       }
     };
-    reader.onerror = () => {
-      setError('Error al leer el archivo.');
-    };
+    reader.onerror = () => setError('Error al leer el archivo.');
     reader.readAsText(file);
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Restaurar desde Backup">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Restaurar desde Backup">
       <div className="p-6 space-y-4">
         <p className="text-sm text-gray-300">
-          Selecciona o arrastra tu archivo de respaldo (.json) para restaurar los datos.
-          Esta acción sobreescribirá todos los datos actuales y recargará la aplicación.
+          Selecciona o arrastra tu archivo de respaldo (.json).
+          <span className="font-bold text-yellow-400"> Esta acción sobreescribirá todos los datos actuales.</span>
         </p>
 
         {!file ? (
@@ -109,13 +90,7 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
             <UploadCloud size={40} className="text-gray-400 mb-2" />
             <span className="text-gray-300">Arrastra y suelta el archivo aquí</span>
             <span className="text-sm text-gray-500">o haz clic para seleccionar</span>
-            <input
-              id="backupFileInput"
-              type="file"
-              accept=".json"
-              className="hidden"
-              onChange={handleFileChange}
-            />
+            <input id="backupFileInput" type="file" accept=".json" className="hidden" onChange={handleFileChange} />
           </div>
         ) : (
           <div className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
@@ -123,10 +98,7 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
               <FileJson size={24} className="text-purple-400 flex-shrink-0" />
               <span className="text-sm text-white truncate" title={file.name}>{file.name}</span>
             </div>
-            <button
-              onClick={() => setFile(null)}
-              className="p-1 rounded-full text-gray-400 hover:bg-gray-600 hover:text-white"
-            >
+            <button onClick={() => setFile(null)} className="p-1 rounded-full text-gray-400 hover:bg-gray-600 hover:text-white">
               <X size={16} />
             </button>
           </div>
@@ -135,11 +107,11 @@ const RestoreModal: React.FC<RestoreModalProps> = ({ isOpen, onClose }) => {
         {error && <p className="text-red-400 text-sm">{error}</p>}
         
         <div className="flex justify-end gap-4 pt-2">
-          <button onClick={onClose} className="py-2 px-4 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
+          <button onClick={handleClose} className="py-2 px-4 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
             Cancelar
           </button>
           <button onClick={handleRestore} disabled={!file} className="py-2 px-4 bg-brand-green hover:bg-green-600 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            Restaurar y Recargar
+            Previsualizar y Restaurar
           </button>
         </div>
       </div>

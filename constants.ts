@@ -41,3 +41,28 @@ export const createEmptyProduct = (): Omit<Product, 'id'> => ({
   imageHint: [],
   variants: [{ ...EMPTY_VARIANT, id: `new-variant-${Date.now()}` }],
 });
+
+const placeholderData = {
+  placeholderImages: [
+    {
+      id: "minifigura-1",
+      category: "minifiguras",
+      title: "Ejemplo: Guerrero Espacial",
+      description: "Figura de construcción tipo bloque.",
+      details: "Incluye base y accesorios. Plástico ABS de alta calidad.",
+      imageUrls: ["https://via.placeholder.com/400x400.png?text=Producto"],
+      imageHint: ["Serie Original"],
+      variants: [
+        {
+          id: "minifigura-1-default",
+          name: "Único",
+          sku: "ALG-MF-001",
+          price: "15.000 und",
+          stock: 10,
+        },
+      ],
+    },
+  ],
+};
+
+export const placeholderJson = JSON.stringify(placeholderData, null, 2);
