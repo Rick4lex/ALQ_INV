@@ -1,4 +1,5 @@
-import Dexie, { Table } from 'dexie';
+import Dexie from 'dexie';
+import type { Table } from 'dexie';
 import { Product, UserPreferences, Movement, ManualMovement, AuditEntry, StringId } from './types';
 
 export class AlquimaMizuDB extends Dexie {

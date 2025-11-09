@@ -176,11 +176,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         title: 'Confirmar Restauración',
         message: '¿Estás seguro de que quieres restaurar desde este archivo? Todos los datos actuales serán eliminados y reemplazados por los del backup. Esta acción es irreversible.',
         onConfirm: async () => {
-            await (db as Dexie).transaction('rw', ...db.tables, async () => {
-                // Clear all tables
-                for (const table of db.tables) {
-                    await table.clear();
-                }
+            // Fix: Property 'tables' does not exist on type 'AlquimaMizuDB'. Explicitly list all tables for the transaction.
+            await (db as Dexie).transaction('rw', [
+                db.products,
+                db.preferences,
+                db.ignoredProductIds,
+                db.allCategories,
+                db.movements,
+                db.manualMovements,
+                db.auditLog,
+            ], async () => {
+                // Fix: Explicitly clear all tables instead of iterating over a non-existent 'tables' property.
+                await Promise.all([
+                    db.products.clear(),
+                    db.preferences.clear(),
+                    db.ignoredProductIds.clear(),
+                    db.allCategories.clear(),
+                    db.movements.clear(),
+                    db.manualMovements.clear(),
+                    db.auditLog.clear(),
+                ]);
 
                 // Restore data
                 await db.products.bulkPut(backupData.products);
