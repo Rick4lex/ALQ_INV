@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useCallback, Suspense, lazy, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, Suspense, lazy } from 'react';
 import { Product, UserPreferences, ModalState, Movement, ManualMovement } from './types';
+import { LOCAL_STORAGE_KEYS, INITIAL_CATEGORIES } from './constants';
 import { useAppStore } from './hooks/useLocalStorage';
-import { initializeRootDocHandle } from './lib/automerge-repo';
 import JsonLoader from './components/JsonLoader';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
@@ -33,13 +33,16 @@ export type CsvUpdatePayload = {
   newStock?: number;
 };
 
-const AppContent: React.FC = () => {
+const App: React.FC = () => {
   const {
-    products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog,
-    loadJsonData, resetAllData, updatePreference, deleteProduct, saveMovement, saveManualMovement,
-    ignoreProduct, restoreProduct, saveCategory, importCsvUpdates, repairDuplicateVariantIds,
-    mergeProducts, bulkEditProducts, bulkIgnoreProducts, bulkDeleteProducts,
-    handleProductSave, handleMultipleMovementsDelete,
+    products, setProducts,
+    preferences, setPreferences,
+    ignoredProductIds, setIgnoredProductIds,
+    allCategories, setAllCategories,
+    movements, setMovements,
+    manualMovements, setManualMovements,
+    auditLog,
+    logAction, addMovement, handleProductSave, handleMultipleMovementsDelete
   } = useAppStore();
   
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -82,13 +85,33 @@ const AppContent: React.FC = () => {
     }).sort(productSortComparator);
   }, [products, preferences, ignoredProductIds, fusionMode, selectedTags, selectedProductIds]);
 
-  const handleReset = () => {
-    if (window.confirm('¿Estás seguro de que quieres borrar todos los datos? Esta acción es irreversible.')) {
-      resetAllData();
-    }
-  };
+  const handleJsonLoad = useCallback((data: Product[]) => {
+    setProducts(data);
+    const loadedCategories = [...new Set(data.map(p => p.category).filter(Boolean))];
+    setAllCategories(prev => {
+        const newCategories = loadedCategories.filter(c => !new Set(prev).has(c));
+        return newCategories.length > 0 ? [...prev, ...newCategories] : prev;
+    });
+  }, [setProducts, setAllCategories]);
 
-  const handleIgnoredChange = (show: boolean) => {
+  const handleReset = useCallback(() => {
+    if (window.confirm('¿Estás seguro de que quieres borrar todos los datos? Esta acción es irreversible.')) {
+      setProducts(null);
+      setPreferences({ viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false });
+      setIgnoredProductIds(['banner']);
+      setAllCategories(INITIAL_CATEGORIES);
+      setMovements({});
+      setManualMovements([]);
+      localStorage.removeItem(LOCAL_STORAGE_KEYS.DATA_VERSION);
+      localStorage.removeItem(LOCAL_STORAGE_KEYS.AUDIT_LOG);
+    }
+  }, [setProducts, setPreferences, setIgnoredProductIds, setAllCategories, setMovements, setManualMovements]);
+
+  const updatePreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
+    setPreferences(prev => ({ ...prev, [key]: value }));
+  }, [setPreferences]);
+
+  const handleIgnoredChange = useCallback((show: boolean) => {
     if (show) {
       if (window.confirm('¿Estás seguro de que quieres mostrar los productos ocultos? Esta vista es para gestión y puede incluir items que no están a la venta.')) {
         updatePreference('showIgnoredOnly', show);
@@ -96,45 +119,71 @@ const AppContent: React.FC = () => {
     } else {
       updatePreference('showIgnoredOnly', show);
     }
-  };
+  }, [updatePreference]);
 
-  const handleProductDelete = (productId: string) => {
-    deleteProduct(productId);
+  const handleProductDelete = useCallback((productId: string) => {
+    const productToDelete = products?.find(p => p.id === productId);
+    if(productToDelete) logAction('product_delete', `Producto eliminado: "${productToDelete.title}"`);
+    setProducts(prev => prev?.filter(p => p.id !== productId) || []);
     setModal(null);
-  };
-  
-  const handleSaveMovementAndClose = (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
-    saveMovement(productId, variantId, movementData);
+  }, [products, setProducts, logAction]);
 
-    const product = products?.find(p => p.id === productId);
-    if(product) {
-      const newTotalStock = product.variants.reduce((sum, v) => sum + (v.id === variantId ? v.stock + movementData.change : v.stock), 0);
-      if (newTotalStock === 0 && preferences.showAvailableOnly) {
-          updatePreference('showAvailableOnly', false);
-      }
+  const handleSaveMovement = useCallback((productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
+    const currentProduct = products?.find(p => p.id === productId);
+    if (!currentProduct) return;
+
+    const variant = currentProduct.variants.find(v => v.id === variantId);
+    if (!variant) return;
+
+    let newStockValue = Math.max(0, variant.stock + movementData.change);
+
+    setProducts(prev => prev?.map(p => {
+        if (p.id !== productId) return p;
+        return {
+            ...p,
+            variants: p.variants.map(v => v.id === variantId ? { ...v, stock: newStockValue } : v),
+        };
+    }) || null);
+    
+    addMovement(variantId, { ...movementData, newStock: newStockValue });
+
+    const totalStockAfterUpdate = currentProduct.variants.reduce((sum, v) => {
+        return sum + (v.id === variantId ? newStockValue : v.stock);
+    }, 0);
+
+    if (totalStockAfterUpdate === 0 && preferences.showAvailableOnly) {
+        updatePreference('showAvailableOnly', false);
     }
-  };
+}, [products, setProducts, addMovement, preferences.showAvailableOnly, updatePreference]);
 
-  const handleManualMovementSave = (movement: Omit<ManualMovement, 'id'>) => {
-    saveManualMovement(movement);
-    setModal(null);
-  };
 
-  const handleIgnoreProduct = (product: Product) => {
-    ignoreProduct(product.id, product.title);
+  const handleManualMovementSave = useCallback((movement: Omit<ManualMovement, 'id'>) => {
+    setManualMovements(prev => [...prev, { ...movement, id: `manual-${Date.now()}-${Math.random()}` }]);
     setModal(null);
-  };
+  }, [setManualMovements]);
+
+  const handleIgnoreProduct = useCallback((productId: string) => {
+    const productToIgnore = products?.find(p => p.id === productId);
+    if(productToIgnore) logAction('product_ignore', `Producto ocultado: "${productToIgnore.title}"`);
+    setIgnoredProductIds(prev => prev.includes(productId) ? prev : [...prev, productId]);
+    setModal(null);
+  }, [products, setIgnoredProductIds, logAction]);
   
-  const handleRestoreProduct = (productToRestore: Product) => {
+  const handleRestoreProduct = useCallback((productToRestore: Product) => {
     if (window.confirm(`¿Seguro que quieres restaurar "${productToRestore.title}"? Volverá a ser visible en el catálogo principal.`)) {
-        restoreProduct(productToRestore.id, productToRestore.title);
+        logAction('product_restore', `Producto restaurado: "${productToRestore.title}"`);
+        setIgnoredProductIds(prev => prev.filter(id => id !== productToRestore.id));
     }
-  };
+  }, [setIgnoredProductIds, logAction]);
 
-  const handleCategorySave = (newCategory: string) => {
-    saveCategory(newCategory);
+  const handleCategorySave = useCallback((newCategory: string) => {
+    const formatted = newCategory.trim().toLowerCase().replace(/\s+/g, '-');
+    if (formatted && !allCategories.includes(formatted)) {
+      logAction('category_add', `Categoría añadida: "${formatted}"`);
+      setAllCategories(prev => [...prev, formatted]);
+    }
     setModal(null);
-  };
+  }, [allCategories, setAllCategories, logAction]);
 
   const handleBackupDownload = useCallback(() => {
     if (!window.confirm('¿Descargar una copia de seguridad completa?')) return;
@@ -149,19 +198,70 @@ const AppContent: React.FC = () => {
     a.remove();
   }, [products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog]);
 
-  const handleCsvImport = (updates: CsvUpdatePayload[]) => {
-    if (updates.length === 0) {
+  const handleCsvImport = useCallback((updates: CsvUpdatePayload[]) => {
+    if (updates.length === 0 || !products) {
       setModal(null);
       return;
     }
-    importCsvUpdates(updates);
+
+    const updatesMap = new Map<string, CsvUpdatePayload>(updates.map(u => [u.variantId, u]));
+    const variantMap = new Map<string, Product['variants'][0]>();
+    products.forEach(p => p.variants.forEach(v => variantMap.set(v.id, v)));
+
+    // Update products state and generate movements in one pass
+    setProducts(prev => {
+      if (!prev) return null;
+      return prev.map(p => {
+        let wasModified = false;
+        const newVariants = p.variants.map(v => {
+          if (updatesMap.has(v.id)) {
+            wasModified = true;
+            const update = updatesMap.get(v.id)!;
+            const originalVariant = variantMap.get(v.id)!;
+
+            // Generate movement if stock changed
+            if (update.newStock !== undefined && update.newStock !== originalVariant.stock) {
+              const change = update.newStock - originalVariant.stock;
+              addMovement(v.id, {
+                timestamp: Date.now(),
+                type: 'Ajuste',
+                change: change,
+                newStock: update.newStock,
+                notes: 'Actualización masiva desde CSV',
+              });
+            }
+            
+            return {
+              ...v,
+              price: update.newPrice !== undefined ? update.newPrice : v.price,
+              cost: update.newCost !== undefined ? update.newCost : v.cost,
+              stock: update.newStock !== undefined ? update.newStock : v.stock,
+            };
+          }
+          return v;
+        });
+
+        return wasModified ? { ...p, variants: newVariants } : p;
+      });
+    });
+
+    logAction('csv_update', `Actualizadas ${updates.length} variantes mediante CSV.`);
     setModal(null);
     alert(`Actualización por CSV completada. Se modificaron ${updates.length} variantes.`);
-  };
+  }, [products, setProducts, addMovement, logAction]);
 
-  const handleRepairDuplicateVariantIds = () => {
-    const { repairedCount, duplicateIds } = repairDuplicateVariantIds();
-    
+    const handleRepairDuplicateVariantIds = useCallback(() => {
+    if (!products) return;
+
+    const variantIdCounts = new Map<string, number>();
+    products.forEach(p => {
+      p.variants.forEach(v => {
+        variantIdCounts.set(v.id, (variantIdCounts.get(v.id) || 0) + 1);
+      });
+    });
+
+    const duplicateIds = [...variantIdCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+
     if (duplicateIds.length === 0) {
       alert("No se encontraron IDs de variantes duplicados. ¡Tus datos están en buen estado!");
       return;
@@ -170,22 +270,84 @@ const AppContent: React.FC = () => {
     if (!window.confirm(`Se encontraron ${duplicateIds.length} ID(s) de variante compartidos. ¿Deseas repararlos automáticamente?\n\nADVERTENCIA: El primer producto encontrado con un ID duplicado conservará el historial compartido. Los demás obtendrán un nuevo ID y su historial se reiniciará basado en su stock actual. Esta acción no se puede deshacer.`)) {
       return;
     }
-    
-    alert(`Reparación completada. Se corrigieron ${repairedCount} variantes.`);
-  };
 
-  const handleProductMerge = (primaryProductId: string, secondaryProductId: string) => {
-    mergeProducts(primaryProductId, secondaryProductId);
+    let updatedProducts = JSON.parse(JSON.stringify(products));
+    let updatedMovements = JSON.parse(JSON.stringify(movements));
+    let variantsRepairedCount = 0;
+
+    duplicateIds.forEach(dupId => {
+      const productsWithDup = updatedProducts.filter((p: Product) => p.variants.some(v => v.id === dupId));
+      productsWithDup.slice(1).forEach((productToFix: Product) => {
+        const variantToFix = productToFix.variants.find(v => v.id === dupId);
+        if (variantToFix) {
+          const newId = `repaired-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const oldStock = variantToFix.stock;
+          
+          variantToFix.id = newId;
+          
+          updatedMovements[newId] = [{
+            id: `mov-repair-${Date.now()}`,
+            variantId: newId,
+            timestamp: Date.now(),
+            type: 'Inicial',
+            change: oldStock,
+            newStock: oldStock,
+            notes: 'ID de variante reparado. Historial reiniciado.'
+          }];
+          variantsRepairedCount++;
+        }
+      });
+    });
+
+    setProducts(updatedProducts);
+    setMovements(updatedMovements);
+    logAction('data_repair', `Reparación automática ejecutada. Se corrigieron ${variantsRepairedCount} variantes.`);
+    alert(`Reparación completada. Se corrigieron ${variantsRepairedCount} variantes.`);
+  }, [products, movements, setProducts, setMovements, logAction]);
+
+  const handleProductMerge = useCallback((primaryProductId: string, secondaryProductId: string) => {
+    const primaryProduct = products?.find(p => p.id === primaryProductId);
+    const secondaryProduct = products?.find(p => p.id === secondaryProductId);
+
+    if (!primaryProduct || !secondaryProduct) return;
+
+    const mergedVariants = [...primaryProduct.variants, ...secondaryProduct.variants];
+    
+    const variantNameCounts = new Map<string, number>();
+    mergedVariants.forEach(v => {
+      variantNameCounts.set(v.name, (variantNameCounts.get(v.name) || 0) + 1);
+    });
+    
+    const finalVariants = mergedVariants.map(v => {
+      if ((variantNameCounts.get(v.name) || 0) > 1) {
+        const sourceProductTitle = secondaryProduct.variants.some(sv => sv.id === v.id) 
+            ? secondaryProduct.title.split(' ')[0]
+            : primaryProduct.title.split(' ')[0];
+        return { ...v, name: `${v.name} (${sourceProductTitle})` };
+      }
+      return v;
+    });
+
+    const mergedProduct: Product = { ...primaryProduct, variants: finalVariants };
+    
+    setProducts(prev => {
+        if (!prev) return null;
+        const newProducts = prev.filter(p => p.id !== secondaryProductId);
+        return newProducts.map(p => p.id === primaryProductId ? mergedProduct : p);
+    });
+
+    logAction('product_merge', `Productos fusionados: "${secondaryProduct.title}" en "${primaryProduct.title}".`);
     setModal(null);
     setFusionMode(false);
     setSelectedForFusion([]);
-  };
+  }, [products, setProducts, logAction]);
 
   const handleImageClick = (images: string[]) => {
     const validImages = images.filter(Boolean);
     if (validImages.length > 0) setFullscreenData({ images: validImages, index: 0 });
   };
   
+  // --- Fusion Mode Logic ---
   const toggleFusionSelection = (productId: string) => {
     setSelectedForFusion(prev => {
         const newSelection = new Set(prev);
@@ -202,6 +364,7 @@ const AppContent: React.FC = () => {
     }
   };
   
+  // --- Bulk Selection Logic ---
   const handleToggleSelection = (productId: string) => {
     setSelectedProductIds(prev => {
       const newSet = new Set(prev);
@@ -211,22 +374,44 @@ const AppContent: React.FC = () => {
     });
   };
   
+  // --- Bulk Actions ---
   const handleBulkEditSave = (changes: { category?: string; hintsToAdd?: string[] }) => {
-    bulkEditProducts(selectedProductIds, changes);
+    setProducts(prev => {
+      if (!prev) return null;
+      return prev.map(p => {
+        if (selectedProductIds.has(p.id)) {
+          const newProduct = { ...p };
+          if (changes.category) newProduct.category = changes.category;
+          if (changes.hintsToAdd && changes.hintsToAdd.length > 0) {
+            const currentHints = new Set(p.imageHint || []);
+            changes.hintsToAdd.forEach(hint => currentHints.add(hint));
+            newProduct.imageHint = Array.from(currentHints);
+          }
+          return newProduct;
+        }
+        return p;
+      });
+    });
+    logAction('bulk_edit', `Edición masiva aplicada a ${selectedProductIds.size} productos.`);
     setModal(null);
     setSelectedProductIds(new Set());
   };
 
   const handleBulkIgnore = () => {
     if (window.confirm(`¿Estás seguro de que quieres ocultar los ${selectedProductIds.size} productos seleccionados?`)) {
-        bulkIgnoreProducts(selectedProductIds);
+        setIgnoredProductIds(prev => {
+            const newIgnored = new Set([...prev, ...selectedProductIds]);
+            return Array.from(newIgnored);
+        });
+        logAction('bulk_ignore', `Ocultados ${selectedProductIds.size} productos en lote.`);
         setSelectedProductIds(new Set());
     }
   };
 
   const handleBulkDelete = () => {
     if (window.confirm(`¿Estás seguro de que quieres eliminar permanentemente los ${selectedProductIds.size} productos seleccionados?`)) {
-        bulkDeleteProducts(selectedProductIds);
+        setProducts(prev => prev?.filter(p => !selectedProductIds.has(p.id)) || []);
+        logAction('bulk_delete', `Eliminados ${selectedProductIds.size} productos en lote.`);
         setSelectedProductIds(new Set());
     }
   };
@@ -241,10 +426,8 @@ const AppContent: React.FC = () => {
     });
   };
 
-  if (products === null || (products.length === 0 && Object.keys(movements).length === 0)) {
-    return <JsonLoader onJsonLoad={loadJsonData} />;
-  }
-  
+  if (products === null) return <JsonLoader onJsonLoad={handleJsonLoad} />;
+
   const isSelectionMode = selectedProductIds.size > 0;
 
   const renderModal = () => {
@@ -254,10 +437,10 @@ const AppContent: React.FC = () => {
       case 'add': return <ProductFormModal {...commonProps} onSave={p => { handleProductSave(p); setModal(null); }} categories={allCategories} />;
       case 'edit': return <ProductFormModal {...commonProps} onSave={p => { handleProductSave(p); setModal(null); }} productToEdit={modal.product} categories={allCategories} />;
       case 'delete': return <ConfirmDeleteModal {...commonProps} onConfirm={() => handleProductDelete(modal.product.id)} productName={modal.product.title} />;
-      case 'ignore': return <ConfirmIgnoreModal {...commonProps} onConfirm={() => handleIgnoreProduct(modal.product)} productName={modal.product.title} />;
+      case 'ignore': return <ConfirmIgnoreModal {...commonProps} onConfirm={() => handleIgnoreProduct(modal.product.id)} productName={modal.product.title} />;
       case 'export': return <ExportModal {...commonProps} format={modal.format} products={products} ignoredProductIds={ignoredProductIds} />;
       case 'add-category': return <AddCategoryModal {...commonProps} onSave={handleCategorySave} existingCategories={allCategories} />;
-      case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovementAndClose} onDeleteMovements={handleMultipleMovementsDelete} />;
+      case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} movements={movements} onSaveMovement={handleSaveMovement} onDeleteMovements={handleMultipleMovementsDelete} />;
       case 'manual-movement': return <ManualMovementModal {...commonProps} onSave={handleManualMovementSave} />;
       case 'tools': return <ToolsModal {...commonProps} onRepair={handleRepairDuplicateVariantIds} onFusionStart={() => { setFusionMode(true); setModal(null); }} onShowAuditLog={() => setModal({ type: 'audit-log' })} />;
       case 'fusion': return <FusionModal {...commonProps} productsToFuse={modal.products} onMerge={handleProductMerge} />;
@@ -273,7 +456,7 @@ const AppContent: React.FC = () => {
       <div className={currentView === 'catalog' ? "pb-40 md:pb-24" : ""}>
         {currentView === 'catalog' && (
           <Header 
-            onViewModeChange={(mode: 'grid' | 'list') => updatePreference('viewMode', mode)}
+            onViewModeChange={(mode) => updatePreference('viewMode', mode)}
             onAddProduct={() => setModal({ type: 'add' })}
             onAddCategory={() => setModal({ type: 'add-category' })}
             onReset={handleReset}
@@ -365,45 +548,6 @@ const AppContent: React.FC = () => {
       )}
     </div>
   );
-};
-
-const App: React.FC = () => {
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    initializeRootDocHandle()
-      .then(() => setIsInitialized(true))
-      .catch(e => {
-        console.error("Failed to initialize Automerge repo:", e);
-        setError(e);
-      });
-  }, []);
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white p-4">
-        <div className="text-center bg-red-900/50 p-8 rounded-lg border border-red-500/30">
-          <h1 className="text-2xl font-bold text-red-400">Error de Inicialización</h1>
-          <p className="mt-2 text-gray-300">No se pudo cargar la base de datos de la aplicación.</p>
-          <p className="mt-1 text-gray-400">Por favor, intenta refrescar la página. Si el problema persiste, contacta a soporte.</p>
-          <pre className="mt-4 text-left text-xs bg-black/30 p-4 rounded overflow-auto max-h-40">{error.message}</pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isInitialized) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900">
-        <div className="text-white text-xl font-semibold animate-pulse">
-          Inicializando Alquima Mizu...
-        </div>
-      </div>
-    );
-  }
-
-  return <AppContent />;
 };
 
 export default App;

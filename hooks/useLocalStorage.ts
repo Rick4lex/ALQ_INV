@@ -1,355 +1,234 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { LOCAL_STORAGE_KEYS, DATA_VERSION, INITIAL_CATEGORIES } from '../constants';
 import { Product, UserPreferences, Movements, ManualMovement, Movement, AuditEntry } from '../types';
-import { useDocument } from './useDocument';
-import { getRootDocHandleSync, AppDoc } from '../lib/automerge-repo';
-import { INITIAL_CATEGORIES, LOCAL_STORAGE_KEYS } from '../constants';
 
-export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
+export function useLocalStorage<T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [storedValue, setStoredValue] = useState<T>(() => {
-    if (typeof window === 'undefined') {
-      return initialValue;
-    }
     try {
       const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
+      let value = item ? JSON.parse(item) : initialValue;
+
+      // One-time data migrations, only for PRODUCTS key
+      if (key === LOCAL_STORAGE_KEYS.PRODUCTS && Array.isArray(value) && value.length > 0) {
+          const currentVersion = parseInt(window.localStorage.getItem(LOCAL_STORAGE_KEYS.DATA_VERSION) || '0', 10);
+          let dataUpdated = false;
+
+          if (currentVersion < 1 && value[0].hasOwnProperty('available')) {
+              dataUpdated = true;
+              value = value.map((p: any) => {
+                  const { available, ...rest } = p;
+                  return { ...rest, stock: available ? 1 : 0 };
+              });
+          }
+          
+          if (currentVersion < 2 && value[0].hasOwnProperty('stock') && !value[0].hasOwnProperty('variants')) {
+              dataUpdated = true;
+              value = value.map((p: any) => {
+                  const { stock, price, sku, ...rest } = p;
+                  return {
+                      ...rest,
+                      variants: [{ id: `${p.id}-default`, name: 'Único', stock: stock ?? 0, price: price ?? '', sku: sku ?? '' }],
+                  };
+              });
+          }
+          
+          if (currentVersion < 3 && value.some((p: Product) => p.variants.some(v => typeof v.price === 'string'))) {
+              dataUpdated = true;
+              value = value.map((p: any) => ({
+                  ...p,
+                  variants: p.variants.map((v: any) => {
+                      if (typeof v.price === 'string') {
+                          const numericString = v.price.replace(/[^\d]/g, '');
+                          return { ...v, price: numericString ? parseInt(numericString, 10) : 0 };
+                      }
+                      return { ...v, price: typeof v.price === 'number' ? v.price : 0 };
+                  }),
+              }));
+          }
+          
+          if (currentVersion < 4 && value.some((p: any) => p.hasOwnProperty('priceUnit') || p.variants.some((v: any) => !v.hasOwnProperty('itemCount')))) {
+              dataUpdated = true;
+              value = value.map((p: any) => {
+                  const { priceUnit, ...rest } = p;
+                  return {
+                      ...rest,
+                      variants: rest.variants.map((v: any) => ({
+                          ...v,
+                          itemCount: v.itemCount || 1,
+                          name: v.name === 'Único' ? 'Unidad' : v.name,
+                      })),
+                  };
+              });
+          }
+
+          // Migration for imageHint (version 5). It also acts as a data repair step if it detects bad data.
+          const needsImageHintRepair = currentVersion < 5 || value.some((p: any) => p?.imageHint != null && !Array.isArray(p.imageHint));
+
+          if (needsImageHintRepair) {
+              let migrationPerformed = false;
+              const migratedValue = value.map((p: any) => {
+                  if (!p || typeof p !== 'object' || (p.imageHint == null || Array.isArray(p.imageHint))) {
+                    return p; // Already valid (null, undefined, or array) or cannot be processed.
+                  }
+
+                  // If we are here, a migration is needed for this product because imageHint is not an array.
+                  migrationPerformed = true;
+                  const newProduct = { ...p };
+                  const imageHint = p.imageHint;
+
+                  if (typeof imageHint === 'string') {
+                      newProduct.imageHint = imageHint.split(',').map((h: string) => h.trim()).filter(Boolean);
+                  } else if (imageHint) { // Handles any other truthy, non-array value (number, object, boolean)
+                      newProduct.imageHint = [String(imageHint)];
+                  } else { // Handles falsy values that are not null/undefined (e.g., 0, "", false)
+                      newProduct.imageHint = [];
+                  }
+                  return newProduct;
+              });
+
+              if (migrationPerformed) {
+                  dataUpdated = true;
+                  value = migratedValue;
+              }
+          }
+
+          if (dataUpdated) {
+              window.localStorage.setItem(LOCAL_STORAGE_KEYS.DATA_VERSION, String(DATA_VERSION));
+          }
+      }
+      
+      return value;
     } catch (error) {
       console.error(error);
       return initialValue;
     }
   });
 
-  const setValue = (value: T | ((val: T) => T)) => {
+  useEffect(() => {
     try {
-      const valueToStore = value instanceof Function ? value(storedValue) : value;
-      setStoredValue(valueToStore);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(key, JSON.stringify(valueToStore));
-      }
+      const valueToStore =
+        typeof storedValue === 'function'
+          ? (storedValue as (prevState: T) => T)(storedValue)
+          : storedValue;
+      window.localStorage.setItem(key, JSON.stringify(valueToStore));
     } catch (error) {
       console.error(error);
     }
-  };
-  return [storedValue, setValue];
+  }, [key, storedValue]);
+
+  return [storedValue, setStoredValue];
 }
 
-// Helper para añadir un movimiento dentro de un bloque de cambio de Automerge.
-// Esto evita la repetición de código y asegura consistencia.
-const addMovementInChangeBlock = (doc: AppDoc, variantId: string, movementData: Omit<Movement, 'id' | 'variantId'>) => {
-    const newMovement: Movement = { ...movementData, id: `mov-${Date.now()}-${Math.random()}`, variantId };
-    if (!doc.movements[variantId]) {
-        doc.movements[variantId] = [];
-    }
-    doc.movements[variantId].push(newMovement);
-};
-
-// --- Hook Central de Lógica de la Aplicación ---
+// --- Centralized Application Logic Hook ---
 export const useAppStore = () => {
-    const doc = useDocument<AppDoc>();
-    const handle = getRootDocHandleSync(); // Retrieve handle safely inside the hook
-
-    // --- Capa de Adaptación: Materialización del Estado ---
-    // Convierte los proxies de Automerge en objetos y arrays de JavaScript puros
-    // para que React pueda trabajar con ellos de forma segura y eficiente.
-    const products = useMemo(() => (doc && doc.products ? [...doc.products] : null), [doc]);
-    const preferences = useMemo(() => (doc ? { ...doc.preferences } : { viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false }), [doc]);
-    const ignoredProductIds = useMemo(() => (doc ? [...doc.ignoredProductIds] : []), [doc]);
-    const allCategories = useMemo(() => (doc ? [...doc.allCategories] : []), [doc]);
-    const movements = useMemo(() => (doc ? JSON.parse(JSON.stringify(doc.movements)) : {}), [doc]);
-    const manualMovements = useMemo(() => (doc ? [...doc.manualMovements] : []), [doc]);
-    const auditLog = useMemo(() => (doc ? [...doc.auditLog] : []), [doc]);
-    
-    // --- Acciones de Modificación de Estado ---
-    // Cada función envuelve las modificaciones en `handle.change` para asegurar
-    // que se apliquen de forma transaccional a Automerge.
+    const [products, setProducts] = useLocalStorage<Product[] | null>(LOCAL_STORAGE_KEYS.PRODUCTS, null);
+    const [preferences, setPreferences] = useLocalStorage<UserPreferences>(LOCAL_STORAGE_KEYS.PREFERENCES, {
+        viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false,
+    });
+    const [ignoredProductIds, setIgnoredProductIds] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.IGNORED_PRODUCTS, ['banner']);
+    const [allCategories, setAllCategories] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
+    const [movements, setMovements] = useLocalStorage<Movements>(LOCAL_STORAGE_KEYS.MOVEMENTS, {});
+    const [manualMovements, setManualMovements] = useLocalStorage<ManualMovement[]>(LOCAL_STORAGE_KEYS.MANUAL_MOVEMENTS, []);
+    const [auditLog, setAuditLog] = useLocalStorage<AuditEntry[]>(LOCAL_STORAGE_KEYS.AUDIT_LOG, []);
 
     const logAction = useCallback((type: AuditEntry['type'], message: string) => {
-        handle.change(d => {
-            const newEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type, message };
-            d.auditLog.unshift(newEntry);
+      const newEntry: AuditEntry = {
+        id: `log-${Date.now()}`,
+        timestamp: Date.now(),
+        type,
+        message,
+      };
+      setAuditLog(prev => [newEntry, ...prev]);
+    }, [setAuditLog]);
+
+    const addMovement = useCallback((variantId: string, movementData: Omit<Movement, 'id' | 'variantId'>) => {
+        setMovements(prev => {
+            const newMovement: Movement = { ...movementData, id: `mov-${Date.now()}-${Math.random()}`, variantId };
+            return { ...prev, [variantId]: [...(prev[variantId] || []), newMovement] };
         });
-    }, [handle]);
+    }, [setMovements]);
 
     const handleProductSave = useCallback((productToSave: Product) => {
-        handle.change(d => {
-            const existingProductIndex = d.products.findIndex(p => p.id === productToSave.id);
-            if (existingProductIndex > -1) { // Edición
-                const existingProduct = d.products[existingProductIndex];
-                const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_edit', message: `Producto editado: "${productToSave.title}" (ID: ${productToSave.id})` };
-                d.auditLog.unshift(logEntry);
-
+        setProducts(prevProducts => {
+            const existingProduct = prevProducts?.find(p => p.id === productToSave.id);
+            if (existingProduct) { // Editing
+                logAction('product_edit', `Producto editado: "${productToSave.title}" (ID: ${productToSave.id})`);
                 productToSave.variants.forEach(variant => {
                     const existingVariant = existingProduct.variants.find(v => v.id === variant.id);
                     const currentStock = variant.stock || 0;
                     const oldStock = existingVariant?.stock || 0;
 
                     if (!existingVariant) {
-                        addMovementInChangeBlock(d, variant.id, { timestamp: Date.now(), type: 'Inicial', change: currentStock, newStock: currentStock, notes: 'Variante nueva añadida' });
+                        addMovement(variant.id, { timestamp: Date.now(), type: 'Inicial', change: currentStock, newStock: currentStock, notes: 'Variante nueva añadida' });
                     } else if (oldStock !== currentStock) {
                         const change = currentStock - oldStock;
                         if (change !== 0) {
-                            addMovementInChangeBlock(d, variant.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: currentStock, notes: 'Ajuste desde formulario' });
+                            addMovement(variant.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: currentStock, notes: 'Ajuste desde formulario' });
                         }
                     }
                 });
-                d.products[existingProductIndex] = productToSave;
-            } else { // Nuevo producto
-                const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_add', message: `Producto añadido: "${productToSave.title}"` };
-                d.auditLog.unshift(logEntry);
-                
+                return prevProducts?.map(p => p.id === productToSave.id ? productToSave : p) || [];
+            } else { // New product
+                logAction('product_add', `Producto añadido: "${productToSave.title}"`);
                 productToSave.variants.forEach(variant => {
                     const stock = variant.stock || 0;
-                    addMovementInChangeBlock(d, variant.id, { timestamp: Date.now(), type: 'Inicial', change: stock, newStock: stock, notes: 'Stock inicial' });
+                    addMovement(variant.id, { timestamp: Date.now(), type: 'Inicial', change: stock, newStock: stock, notes: 'Stock inicial' });
                 });
-                d.products.push(productToSave);
+                return [...(prevProducts || []), productToSave];
             }
         });
-    }, [handle]);
+    }, [setProducts, addMovement, logAction]);
 
     const handleMultipleMovementsDelete = useCallback((variantId: string, movementIdsToDelete: string[]) => {
-        handle.change(d => {
-            const originalMovements = d.movements[variantId] || [];
-            const remainingMovements = originalMovements.filter(m => !movementIdsToDelete.includes(m.id));
-
-            let currentStock = 0;
-            const recalculatedMovements = remainingMovements.sort((a, b) => a.timestamp - b.timestamp).map(m => {
-                currentStock = m.type === 'Inicial' ? m.change : currentStock + m.change;
-                currentStock = Math.max(0, currentStock);
-                return { ...m, newStock: currentStock };
-            });
-
-            const finalStock = recalculatedMovements.length > 0 ? recalculatedMovements[recalculatedMovements.length - 1].newStock : 0;
-
-            d.products.forEach(p => {
-                const variantIndex = p.variants.findIndex(v => v.id === variantId);
-                if (variantIndex > -1) p.variants[variantIndex].stock = finalStock;
-            });
-            d.movements[variantId] = recalculatedMovements;
-        });
-    }, [handle]);
-    
-    const loadJsonData = useCallback((data: Product[]) => {
-        handle.change(d => {
-            d.products = data;
-            const loadedCategories = [...new Set(data.map(p => p.category).filter(Boolean))];
-            const currentCategories = new Set(d.allCategories);
-            const newCategories = loadedCategories.filter(c => !currentCategories.has(c));
-            if(newCategories.length > 0) d.allCategories.push(...newCategories);
-        });
-    }, [handle]);
-    
-    const resetAllData = useCallback(() => {
-        handle.change(d => {
-            d.products = [];
-            d.preferences = { viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false };
-            d.ignoredProductIds = ['banner'];
-            d.allCategories = INITIAL_CATEGORIES;
-            d.movements = {};
-            d.manualMovements = [];
-            d.auditLog = [];
-        });
-        localStorage.removeItem(LOCAL_STORAGE_KEYS.DATA_VERSION); // Clave no gestionada por el repo
-    }, [handle]);
-
-    const updatePreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
-        handle.change(d => {
-            d.preferences[key] = value;
-        });
-    }, [handle]);
-    
-    const deleteProduct = useCallback((productId: string) => {
-        handle.change(d => {
-            const productToDelete = d.products.find(p => p.id === productId);
-            if (productToDelete) {
-                 const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_delete', message: `Producto eliminado: "${productToDelete.title}"` };
-                 d.auditLog.unshift(logEntry);
-            }
-            d.products = d.products.filter(p => p.id !== productId);
-        });
-    }, [handle]);
-
-    const saveMovement = useCallback((productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
-        handle.change(d => {
-            const product = d.products.find(p => p.id === productId);
-            if (!product) return;
-            const variant = product.variants.find(v => v.id === variantId);
-            if (!variant) return;
-            
-            const newStockValue = Math.max(0, variant.stock + movementData.change);
-            variant.stock = newStockValue;
-            addMovementInChangeBlock(d, variantId, { ...movementData, newStock: newStockValue });
-        });
-    }, [handle]);
-
-    const saveManualMovement = useCallback((movement: Omit<ManualMovement, 'id'>) => {
-        handle.change(d => {
-            d.manualMovements.push({ ...movement, id: `manual-${Date.now()}-${Math.random()}` });
-        });
-    }, [handle]);
-    
-    const ignoreProduct = useCallback((productId: string, productTitle: string) => {
-        handle.change(d => {
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_ignore', message: `Producto ocultado: "${productTitle}"` };
-            d.auditLog.unshift(logEntry);
-            if (!d.ignoredProductIds.includes(productId)) d.ignoredProductIds.push(productId);
-        });
-    }, [handle]);
-    
-    const restoreProduct = useCallback((productId: string, productTitle: string) => {
-        handle.change(d => {
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_restore', message: `Producto restaurado: "${productTitle}"` };
-            d.auditLog.unshift(logEntry);
-            d.ignoredProductIds = d.ignoredProductIds.filter(id => id !== productId);
-        });
-    }, [handle]);
-    
-    const saveCategory = useCallback((newCategory: string) => {
-        const formatted = newCategory.trim().toLowerCase().replace(/\s+/g, '-');
-        handle.change(d => {
-            if (formatted && !d.allCategories.includes(formatted)) {
-                const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'category_add', message: `Categoría añadida: "${formatted}"` };
-                d.auditLog.unshift(logEntry);
-                d.allCategories.push(formatted);
-            }
-        });
-    }, [handle]);
-    
-    const importCsvUpdates = useCallback((updates: { variantId: string; newPrice?: number; newCost?: number; newStock?: number; }[]) => {
-        handle.change(d => {
-            const updatesMap = new Map(updates.map(u => [u.variantId, u]));
-            d.products.forEach(p => {
-                p.variants.forEach(v => {
-                    if (updatesMap.has(v.id)) {
-                        const update = updatesMap.get(v.id)!;
-                        const originalStock = v.stock;
-                        if (update.newStock !== undefined && update.newStock !== originalStock) {
-                            const change = update.newStock - originalStock;
-                            addMovementInChangeBlock(d, v.id, { timestamp: Date.now(), type: 'Ajuste', change, newStock: update.newStock, notes: 'Actualización masiva desde CSV' });
-                        }
-                        if (update.newPrice !== undefined) v.price = update.newPrice;
-                        if (update.newCost !== undefined) v.cost = update.newCost;
-                        if (update.newStock !== undefined) v.stock = update.newStock;
-                    }
-                });
-            });
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'csv_update', message: `Actualizadas ${updates.length} variantes mediante CSV.` };
-            d.auditLog.unshift(logEntry);
-        });
-    }, [handle]);
-    
-    const repairDuplicateVariantIds = useCallback(() => {
-        if (!doc) return { repairedCount: 0, duplicateIds: []};
+        const originalMovements = movements[variantId] || [];
+        const remainingMovements = originalMovements.filter(m => !movementIdsToDelete.includes(m.id));
         
-        const variantIdCounts = new Map<string, number>();
-        doc.products.forEach(p => p.variants.forEach(v => variantIdCounts.set(v.id, (variantIdCounts.get(v.id) || 0) + 1)));
-        const duplicateIds = [...variantIdCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
-
-        if (duplicateIds.length === 0) return { repairedCount: 0, duplicateIds: []};
-
-        let variantsRepairedCount = 0;
-        handle.change(d => {
-            duplicateIds.forEach(dupId => {
-                const productsWithDupIndices = d.products.map((p, index) => p.variants.some(v => v.id === dupId) ? index : -1).filter(index => index !== -1);
-                
-                productsWithDupIndices.slice(1).forEach(productIndex => {
-                    const productToFix = d.products[productIndex];
-                    const variantToFixIndex = productToFix.variants.findIndex(v => v.id === dupId);
-                    if (variantToFixIndex > -1) {
-                        const variantToFix = productToFix.variants[variantToFixIndex];
-                        const newId = `repaired-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                        
-                        addMovementInChangeBlock(d, newId, { timestamp: Date.now(), type: 'Inicial', change: variantToFix.stock, newStock: variantToFix.stock, notes: 'ID de variante reparado. Historial reiniciado.' });
-
-                        variantToFix.id = newId;
-                        variantsRepairedCount++;
-                    }
-                });
-            });
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'data_repair', message: `Reparación automática ejecutada. Se corrigieron ${variantsRepairedCount} variantes.` };
-            d.auditLog.unshift(logEntry);
+        let currentStock = 0;
+        const recalculatedMovements = remainingMovements.sort((a, b) => a.timestamp - b.timestamp).map(m => {
+            currentStock = m.type === 'Inicial' ? m.change : currentStock + m.change;
+            currentStock = Math.max(0, currentStock); // Ensure stock doesn't go negative
+            return { ...m, newStock: currentStock };
         });
-        return { repairedCount: variantsRepairedCount, duplicateIds };
-    }, [doc, handle]);
 
-    const mergeProducts = useCallback((primaryProductId: string, secondaryProductId: string) => {
-        handle.change(d => {
-            const primaryProduct = d.products.find(p => p.id === primaryProductId);
-            const secondaryProduct = d.products.find(p => p.id === secondaryProductId);
-            if (!primaryProduct || !secondaryProduct) return;
+        const finalStock = recalculatedMovements.length > 0 
+            ? recalculatedMovements[recalculatedMovements.length - 1].newStock 
+            : 0;
 
-            const mergedVariants = [...primaryProduct.variants, ...secondaryProduct.variants];
-            const variantNameCounts = new Map<string, number>();
-            mergedVariants.forEach(v => variantNameCounts.set(v.name, (variantNameCounts.get(v.name) || 0) + 1));
-            
-            primaryProduct.variants = mergedVariants.map(v => {
-              if ((variantNameCounts.get(v.name) || 0) > 1) {
-                const sourceProductTitle = secondaryProduct.variants.some(sv => sv.id === v.id) ? secondaryProduct.title.split(' ')[0] : primaryProduct.title.split(' ')[0];
-                return { ...v, name: `${v.name} (${sourceProductTitle})` };
-              }
-              return v;
-            });
-            
-            d.products = d.products.filter(p => p.id !== secondaryProductId);
-            
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'product_merge', message: `Productos fusionados: "${secondaryProduct.title}" en "${primaryProduct.title}".` };
-            d.auditLog.unshift(logEntry);
-        });
-    }, [handle]);
+        setProducts(prev => prev?.map(p => ({
+            ...p,
+            variants: p.variants.map(v => v.id === variantId ? { ...v, stock: finalStock } : v)
+        })) || null);
 
-    const bulkEditProducts = useCallback((selectedIds: Set<string>, changes: { category?: string; hintsToAdd?: string[] }) => {
-        handle.change(d => {
-            d.products.forEach(p => {
-                if (selectedIds.has(p.id)) {
-                    if (changes.category) p.category = changes.category;
-                    if (changes.hintsToAdd?.length) {
-                        const currentHints = new Set(p.imageHint || []);
-                        changes.hintsToAdd.forEach(h => currentHints.add(h));
-                        p.imageHint = Array.from(currentHints);
-                    }
-                }
-            });
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'bulk_edit', message: `Edición masiva aplicada a ${selectedIds.size} productos.` };
-            d.auditLog.unshift(logEntry);
-        });
-    }, [handle]);
+        setMovements(prev => ({
+            ...prev,
+            [variantId]: recalculatedMovements
+        }));
+    }, [movements, setMovements, setProducts]);
     
-    const bulkIgnoreProducts = useCallback((selectedIds: Set<string>) => {
-        handle.change(d => {
-            selectedIds.forEach(id => { if (!d.ignoredProductIds.includes(id)) d.ignoredProductIds.push(id); });
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'bulk_ignore', message: `Ocultados ${selectedIds.size} productos en lote.` };
-            d.auditLog.unshift(logEntry);
-        });
-    }, [handle]);
-    
-    const bulkDeleteProducts = useCallback((selectedIds: Set<string>) => {
-        handle.change(d => {
-            d.products = d.products.filter(p => !selectedIds.has(p.id));
-            const logEntry: AuditEntry = { id: `log-${Date.now()}`, timestamp: Date.now(), type: 'bulk_delete', message: `Eliminados ${selectedIds.size} productos en lote.` };
-            d.auditLog.unshift(logEntry);
-        });
-    }, [handle]);
-
     return {
-        products, preferences, ignoredProductIds, allCategories, movements, manualMovements, auditLog,
-        logAction, handleProductSave, handleMultipleMovementsDelete, loadJsonData, resetAllData,
-        updatePreference, deleteProduct, saveMovement, saveManualMovement, ignoreProduct, restoreProduct,
-        saveCategory, importCsvUpdates, repairDuplicateVariantIds, mergeProducts, bulkEditProducts,
-        bulkIgnoreProducts, bulkDeleteProducts,
+        products, setProducts,
+        preferences, setPreferences,
+        ignoredProductIds, setIgnoredProductIds,
+        allCategories, setAllCategories,
+        movements, setMovements,
+        manualMovements, setManualMovements,
+        auditLog, setAuditLog,
+        logAction, addMovement, handleProductSave, handleMultipleMovementsDelete,
     };
 };
 
 
-// --- Hook de Cálculo Financiero ---
+// --- Financial Calculation Hook ---
 export const useFinancialSummary = (
     movements: Movements,
     manualMovements: ManualMovement[],
-    products: Product[] | null,
+    products: Product[],
     dateRange: string,
     customStart: string,
     customEnd: string
 ) => {
     const variantMap = useMemo(() => {
         const map = new Map<string, { product: Product, variant: Product['variants'][0] }>();
-        if (!products) return map;
         products.forEach(p => p.variants.forEach(v => map.set(v.id, { product: p, variant: v })));
         return map;
     }, [products]);
