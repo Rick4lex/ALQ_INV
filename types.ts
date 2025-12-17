@@ -1,3 +1,5 @@
+import React from 'react';
+
 export interface Movement {
   id: string;
   variantId: string;
