@@ -41,7 +41,7 @@ export const runMigration = async (): Promise<boolean> => {
 
         // Use a transaction for atomic writes to ensure data integrity.
         // Fix: Cast `db` to `Dexie` to resolve transaction method typing issue.
-        await (db as Dexie).transaction('rw', db.products, db.preferences, db.ignoredProductIds, db.allCategories, db.movements, db.manualMovements, db.auditLog, async () => {
+            await (db as any).transaction('rw', db.products, db.preferences, db.ignoredProductIds, db.allCategories, db.movements, db.manualMovements, db.auditLog, async () => {
             if (products.length > 0) await db.products.bulkPut(products);
             await db.preferences.put({ ...preferences, key: 'user' });
             if (ignoredProductIds.length > 0) await db.ignoredProductIds.bulkPut(ignoredProductIds.map(id => ({ id })));
