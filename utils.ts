@@ -78,14 +78,16 @@ export const transformProductForExport = (product: Product): any => {
     const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
     
     const pricedVariants = variants.filter(v => typeof v.price === 'number' && v.price > 0);
-    const lowestPriceVariant = pricedVariants.length > 0
-        ? pricedVariants.reduce((min, v) => v.price! < min.price! ? v : min, pricedVariants[0])
+    
+    // CORRECCIÓN: Seleccionar la variante con el precio más ALTO
+    const highestPriceVariant = pricedVariants.length > 0
+        ? pricedVariants.reduce((max, v) => v.price! > max.price! ? v : max, pricedVariants[0])
         : null;
 
     const finalProduct: any = { ...restOfProduct, available: totalStock > 0 };
     
-    if (lowestPriceVariant) {
-        finalProduct.price = `${lowestPriceVariant.price!.toLocaleString('es-CO')} und`;
+    if (highestPriceVariant) {
+        finalProduct.price = `${highestPriceVariant.price!.toLocaleString('es-CO')} und`;
     } else {
         finalProduct.price = "";
     }
