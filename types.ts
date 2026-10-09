@@ -57,9 +57,11 @@ export interface UserPreferences {
 export interface AuditEntry {
   id: string;
   timestamp: number;
-  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore';
+  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore' | 'cloud_sync';
   message: string;
 }
+
+export type AuditLogEntry = AuditEntry;
 
 // Fix: Add CsvUpdatePayload type for CSV import functionality.
 export interface CsvUpdatePayload {

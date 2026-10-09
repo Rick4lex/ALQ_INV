@@ -1,5 +1,6 @@
 import React, { useMemo, Suspense, lazy } from 'react';
 import { useAppContext } from './contexts/AppContext';
+import { useSilentSync } from './hooks/useSilentSync';
 import JsonLoader from './components/JsonLoader';
 import Header from './components/Header';
 import FilterBar from './components/FilterBar';
@@ -26,6 +27,8 @@ const LoadFromTextModal = lazy(() => import('./components/LoadFromTextModal'));
 const RestoreModal = lazy(() => import('./components/RestoreModal'));
 
 const App: React.FC = () => {
+  useSilentSync(30000);
+
   const {
     products,
     preferences,

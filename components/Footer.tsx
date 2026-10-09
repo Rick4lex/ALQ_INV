@@ -1,9 +1,9 @@
 import React from 'react';
-import { FileJson, FileText, Printer, Download } from 'lucide-react';
+import { FileJson, FileText, Printer, Download, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 
 const Footer: React.FC = () => {
-  const { setModal, handleBackupDownload } = useAppContext();
+  const { setModal, handleBackupDownload, handleManualSync, isSyncing } = useAppContext();
 
   return (
     <footer className="fixed bottom-0 left-0 right-0 bg-gray-900/80 backdrop-blur-lg border-t border-purple-500/30 p-4 z-20">
@@ -23,6 +23,16 @@ const Footer: React.FC = () => {
         <button onClick={handleBackupDownload} className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
           <Download size={18} />
           <span className="hidden sm:inline">Backup</span>
+        </button>
+        <button 
+          onClick={() => handleManualSync(false)} 
+          disabled={isSyncing}
+          className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"
+        >
+          <RefreshCw size={18} className={isSyncing ? "animate-spin" : ""} />
+          <span className="hidden sm:inline">
+            {isSyncing ? "Sincronizando..." : "Sincronizar"}
+          </span>
         </button>
       </div>
     </footer>

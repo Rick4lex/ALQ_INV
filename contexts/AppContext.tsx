@@ -5,6 +5,7 @@ import { useAppStore } from '../hooks/useAppStore';
 import { ModalState, Product, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements } from '../types';
 import { db } from '../db';
 import Dexie from 'dexie';
+import { syncService } from '../services/syncService';
 
 type AppStoreType = {
     products: Product[] | null;
@@ -43,6 +44,10 @@ interface AppContextType extends AppStoreType {
   setSelectedProductIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   selectedTags: string[];
   setSelectedTags: React.Dispatch<React.SetStateAction<string[]>>;
+  isSyncing: boolean;
+  handleManualSync: (isSilent?: boolean) => Promise<void>;
+  triggerRemoteSave: (newStateToSave?: any) => Promise<void>;
+  isAnyModalOpen: () => boolean;
   handleTextLoad: (jsonString: string) => void;
   handleRestoreBackup: (backupData: any) => Promise<void>;
   handleReset: () => void;
@@ -71,7 +76,7 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const store = useAppStore();
-  const { products, setProducts, preferences, setPreferences, ignoredProductIds, setIgnoredProductIds, allCategories, setAllCategories, movements, setMovements, manualMovements, setManualMovements, auditLog, logAction, addMovement, handleProductSave, handleMultipleMovementsDelete: rawHandleMultipleMovementsDelete } = store;
+  const { products, setProducts, preferences, setPreferences, ignoredProductIds, setIgnoredProductIds, allCategories, setAllCategories, movements, setMovements, manualMovements, setManualMovements, auditLog, logAction, addMovement, handleProductSave: storeHandleProductSave, handleMultipleMovementsDelete: rawHandleMultipleMovementsDelete } = store;
 
   const [modal, setModal] = useState<ModalState | null>(null);
   const [fullscreenData, setFullscreenData] = useState<{ images: string[]; index: number } | null>(null);
@@ -80,6 +85,111 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedForFusion, setSelectedForFusion] = useState<string[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const isAnyModalOpen = useCallback(() => modal !== null || fullscreenData !== null, [modal, fullscreenData]);
+
+  const triggerRemoteSave = useCallback(async (newStateToSave?: any) => {
+    try {
+      const currentProducts = newStateToSave || products || await db.products.toArray();
+      const payload = {
+        products: currentProducts,
+        categories: allCategories,
+        movements: movements,
+        timestamp: Date.now()
+      };
+      await syncService.pushRemoteData(payload);
+    } catch (error) {
+      console.error("Fallo al guardar en Sheets:", error);
+    }
+  }, [products, allCategories, movements]);
+
+  const handleManualSync = useCallback(async (isSilent = false) => {
+    if (isSyncing) return;
+    if (!isSilent) setIsSyncing(true);
+
+    try {
+      const remoteData = await syncService.fetchRemoteData();
+      if (!remoteData) return;
+
+      let incomingProducts: any[] | null = null;
+      let incomingCategories: string[] | null = null;
+      let incomingMovements: Movements | null = null;
+
+      if (Array.isArray(remoteData)) {
+        incomingProducts = remoteData;
+      } else if (remoteData.products && Array.isArray(remoteData.products)) {
+        incomingProducts = remoteData.products;
+        if (remoteData.categories && Array.isArray(remoteData.categories)) {
+          incomingCategories = remoteData.categories;
+        }
+        if (remoteData.movements) {
+          incomingMovements = remoteData.movements;
+        }
+      } else if (remoteData.placeholderImages && Array.isArray(remoteData.placeholderImages)) {
+        incomingProducts = remoteData.placeholderImages;
+      } else if (remoteData.data && Array.isArray(remoteData.data)) {
+        incomingProducts = remoteData.data;
+      }
+
+      if (incomingProducts && incomingProducts.length > 0) {
+        const normalizedProducts: Product[] = incomingProducts
+          .filter((p: any) => p && p.id)
+          .map((p: any) => {
+            const prod: any = { ...p };
+            if (prod.imageHint && typeof prod.imageHint === 'string') {
+              prod.imageHint = [prod.imageHint];
+            } else if (!Array.isArray(prod.imageHint)) {
+              prod.imageHint = [];
+            }
+            if (typeof prod.imageUrls === 'string') {
+              prod.imageUrls = prod.imageUrls.split(',').map((s: string) => s.trim()).filter(Boolean);
+            } else if (!Array.isArray(prod.imageUrls)) {
+              prod.imageUrls = [];
+            }
+            if (!prod.variants || !Array.isArray(prod.variants) || prod.variants.length === 0) {
+              const stock = prod.hasOwnProperty('stock') ? prod.stock : (prod.available ? 1 : 0);
+              prod.variants = [{
+                id: `${prod.id}-default`,
+                name: 'Único',
+                stock: Number(stock) || 0,
+                price: prod.price ?? '',
+                sku: prod.sku ?? '',
+              }];
+            }
+            return prod as Product;
+          });
+
+        await db.products.bulkPut(normalizedProducts);
+        setProducts(normalizedProducts);
+
+        const loadedCategories = [...new Set(normalizedProducts.map(p => p.category))];
+        const newCats = [...new Set([...allCategories, ...(incomingCategories || []), ...loadedCategories])];
+        await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
+        setAllCategories(newCats);
+
+        if (incomingMovements) {
+          const flatMovements = Object.values(incomingMovements).flat();
+          await db.movements.bulkPut(flatMovements as Movement[]);
+          setMovements(incomingMovements);
+        }
+
+        await logAction('cloud_sync', `Sincronización remota exitosa (${normalizedProducts.length} productos).`);
+      }
+    } catch (error) {
+      console.error("Error sincronizando:", error);
+      if (!isSilent) {
+        alert("Error al sincronizar con Google Sheets. Revisa la consola o conexión.");
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, allCategories, setProducts, setAllCategories, setMovements, logAction]);
+
+  const handleProductSave = useCallback(async (productToSave: Product) => {
+    await storeHandleProductSave(productToSave);
+    triggerRemoteSave();
+  }, [storeHandleProductSave, triggerRemoteSave]);
   
   const updatePreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
       setPreferences(prev => {
@@ -232,7 +342,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return newMovements;
     });
     await logAction('product_delete', `Producto eliminado: "${productToDelete.title}" (ID: ${productId})`);
-  }, [products, setProducts, setMovements, logAction]);
+    triggerRemoteSave();
+  }, [products, setProducts, setMovements, logAction, triggerRemoteSave]);
   
   const handleSaveMovement = useCallback(async (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => {
       const product = products?.find(p => p.id === productId);
@@ -250,7 +361,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       
       await db.products.put(updatedProduct);
       setProducts(prev => prev?.map(p => p.id === productId ? updatedProduct : p) || null);
-  }, [products, setProducts, addMovement]);
+      triggerRemoteSave();
+  }, [products, setProducts, addMovement, triggerRemoteSave]);
   
   const handleManualMovementSave = useCallback(async (movement: Omit<ManualMovement, 'id'>) => {
       const newMovement: ManualMovement = { ...movement, id: `manual-${Date.now()}` };
@@ -592,6 +704,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     handleImageClick, toggleFusionSelection, startFusion, handleBulkEditSave,
     handleBulkIgnore, handleBulkDelete, changeFullscreenImage,
     handleMultipleMovementsDelete,
+    isSyncing, handleManualSync, triggerRemoteSave, isAnyModalOpen, handleProductSave,
   }), [
     store, modal, fullscreenData, currentView, fusionMode, selectedForFusion, 
     selectedProductIds, selectedTags, handleTextLoad, handleRestoreBackup, handleReset, updatePreference, 
@@ -599,7 +712,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     handleIgnoreProduct, handleRestoreProduct, handleCategorySave, handleBackupDownload, 
     handleCsvImport, handleRepairDuplicateVariantIds, handleProductMerge, handleImageClick, 
     toggleFusionSelection, startFusion, handleBulkEditSave, handleBulkIgnore, 
-    handleBulkDelete, changeFullscreenImage, handleMultipleMovementsDelete
+    handleBulkDelete, changeFullscreenImage, handleMultipleMovementsDelete,
+    isSyncing, handleManualSync, triggerRemoteSave, isAnyModalOpen, handleProductSave
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
