@@ -1,52 +1,49 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Product } from '../types';
 import { Sparkles } from 'lucide-react';
-import { formatPrice } from '../utils';
+import { paginateCatalog, CatalogGroupMode } from '../catalogPagination';
+import CatalogPage from './CatalogPage';
 
 interface CatalogPreviewProps {
   products: Product[];
+  pageSize?: number;
+  groupMode?: CatalogGroupMode;
+  showPrices?: boolean;
 }
 
-const CatalogPreview: React.FC<CatalogPreviewProps> = ({ products }) => {
+const CatalogPreview: React.FC<CatalogPreviewProps> = ({ 
+  products, 
+  pageSize = 6, 
+  groupMode = 'series',
+  showPrices = true
+}) => {
+  const pages = useMemo(() => {
+    return paginateCatalog(products, { pageSize, groupMode });
+  }, [products, pageSize, groupMode]);
+
+  if (pages.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-500">
+        <Sparkles className="mx-auto h-12 w-12 text-gray-300 mb-3" />
+        <p className="text-lg font-medium">No hay productos para mostrar en este catálogo.</p>
+        <p className="text-sm text-gray-400 mt-1">Intenta ajustar los filtros de series o disponibilidad.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="font-sans text-gray-800">
-      <header className="text-center mb-8 border-b-2 border-purple-600 pb-4">
-        <Sparkles className="mx-auto h-12 w-12 text-purple-600" />
-        <h1 className="text-4xl font-bold text-gray-900 mt-2">Alquima Mizu</h1>
-        <p className="text-lg text-purple-700">Catálogo de Productos</p>
-      </header>
-
-      <div className="grid grid-cols-3 gap-4">
-        {products.map(product => (
-          <div key={product.id} className="border border-gray-200 rounded-lg overflow-hidden flex flex-col shadow-md">
-            <div className="w-full h-40 bg-gray-100 flex items-center justify-center">
-                {product.imageUrls[0] && <img src={product.imageUrls[0]} alt={product.title} className="w-full h-full object-cover" />}
-            </div>
-            <div className="p-3 flex flex-col flex-grow">
-              <div>
-                <p className="text-xs text-purple-600 font-semibold uppercase">{product.category}</p>
-                <h3 className="text-base font-bold text-gray-900 mt-1">{product.title}</h3>
-                <p className="text-xs text-gray-600 mt-2 flex-grow">{product.details}</p>
-              </div>
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="flex justify-between items-center">
-                    <span className="text-gray-700 font-medium text-sm">Precio:</span>
-                    <span className="font-semibold text-green-700 text-base">
-                      {formatPrice(product, { onlyAvailable: true })}
-                    </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <footer className="text-center mt-12 pt-4 border-t border-gray-300">
-        <p className="text-sm text-gray-500">Catálogo generado el {new Date().toLocaleDateString('es-ES')}</p>
-        <p className="text-sm text-gray-500">Alquima Mizu - Todos los derechos reservados.</p>
-      </footer>
+      {pages.map((page) => (
+        <CatalogPage 
+          key={page.pageNumber}
+          page={page}
+          pageSize={pageSize}
+          showPrices={showPrices}
+          totalCatalogProducts={products.length}
+        />
+      ))}
     </div>
   );
 };
 
-export default CatalogPreview;
+export default React.memo(CatalogPreview);

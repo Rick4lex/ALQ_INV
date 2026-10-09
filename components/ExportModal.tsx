@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Product } from '../types';
 import Modal from './Modal';
-import { Copy, Check, Printer, Filter, ChevronDown, Download } from 'lucide-react';
+import { 
+  Copy, Check, Printer, Filter, ChevronDown, Download, 
+  Layers, LayoutGrid, Search, Image as ImageIcon, PackageCheck, X, FileSpreadsheet
+} from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { LOCAL_STORAGE_KEYS } from '../constants';
 import { formatVariantPrice, getSortPrice, generateCsvContent, transformProductForExport } from '../utils';
 import { useAppContext } from '../contexts/AppContext';
+import { CatalogGroupMode, paginateCatalog } from '../catalogPagination';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -17,15 +21,27 @@ interface ExportModalProps {
 const titles = {
   json: 'Exportar a JSON',
   markdown: 'Exportar a Markdown',
-  catalog: 'Vista Previa del Catálogo',
+  catalog: 'Vista Previa y Generador de Catálogo PDF',
   csv: 'Exportar a CSV / Excel',
 };
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) => {
-  const { products, ignoredProductIds } = useAppContext();
+  const { products, ignoredProductIds, allCategories } = useAppContext();
   const [markdownSelectedHint, setMarkdownSelectedHint] = useState<string>('Todas');
   const [omittedHints, setOmittedHints] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.OMITTED_HINTS, []);
   const [catalogSelectedHints, setCatalogSelectedHints] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.CATALOG_SELECTED_HINTS, []);
+  
+  // Controles de Maquetación (Fase 1 y 2)
+  const [catalogGroupMode, setCatalogGroupMode] = useState<CatalogGroupMode>('series');
+  const [catalogPageSize, setCatalogPageSize] = useState<number>(6);
+  const [catalogShowPrices, setCatalogShowPrices] = useState<boolean>(true);
+
+  // Filtros Avanzados de Catálogo (Fase 4)
+  const [catalogOnlyWithPhotos, setCatalogOnlyWithPhotos] = useState<boolean>(false);
+  const [catalogOnlyInStock, setCatalogOnlyInStock] = useState<boolean>(true);
+  const [catalogSearchTerm, setCatalogSearchTerm] = useState<string>('');
+  const [catalogSelectedCategory, setCatalogSelectedCategory] = useState<string>('Todas');
+
   const [content, setContent] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -43,18 +59,74 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
   
   const filteredProducts = useMemo(() => {
     if (!products) return [];
+
+    if (format === 'catalog') {
+      return products.filter(p => {
+        if (ignoredProductIds.includes(p.id)) return false;
+
+        // 1. Filtro Solo en Stock
+        if (catalogOnlyInStock && !p.variants.some(v => v.stock > 0)) {
+          return false;
+        }
+
+        // 2. Filtro Solo con Fotos Disponibles (Fase 4)
+        if (catalogOnlyWithPhotos) {
+          const hasImage = p.imageUrls && p.imageUrls.length > 0 && p.imageUrls[0].trim() !== '';
+          if (!hasImage) return false;
+        }
+
+        // 3. Filtro por Categoría
+        if (catalogSelectedCategory !== 'Todas' && p.category !== catalogSelectedCategory) {
+          return false;
+        }
+
+        // 4. Filtro por Serie / imageHint
+        if (catalogSelectedHints.length > 0) {
+          const matchesHint = (p.imageHint || []).some(hint => catalogSelectedHints.includes(hint));
+          if (!matchesHint) return false;
+        } else {
+          return false;
+        }
+
+        // 5. Filtro de Búsqueda por texto
+        if (catalogSearchTerm.trim()) {
+          const query = catalogSearchTerm.toLowerCase();
+          const matchesText = 
+            (p.title || '').toLowerCase().includes(query) ||
+            (p.details || '').toLowerCase().includes(query) ||
+            (p.description || '').toLowerCase().includes(query) ||
+            (p.imageHint || []).some(h => h.toLowerCase().includes(query));
+          if (!matchesText) return false;
+        }
+
+        return true;
+      });
+    }
+
     const baseProducts = products.filter(p => p.variants.some(v => v.stock > 0) && !ignoredProductIds.includes(p.id));
 
     if (format === 'markdown') {
         if (markdownSelectedHint === 'Todas') return baseProducts;
         return baseProducts.filter(p => p.imageHint && p.imageHint.includes(markdownSelectedHint));
     }
-    if (format === 'catalog') {
-        if (catalogSelectedHints.length === 0) return [];
-        return baseProducts.filter(p => (p.imageHint || []).some(hint => catalogSelectedHints.includes(hint)));
-    }
+
     return baseProducts;
-  }, [products, ignoredProductIds, format, markdownSelectedHint, catalogSelectedHints]);
+  }, [
+    products, 
+    ignoredProductIds, 
+    format, 
+    catalogOnlyInStock, 
+    catalogOnlyWithPhotos, 
+    catalogSelectedCategory, 
+    catalogSelectedHints, 
+    catalogSearchTerm, 
+    markdownSelectedHint
+  ]);
+
+  const estimatedCatalogPages = useMemo(() => {
+    if (format !== 'catalog') return 0;
+    return paginateCatalog(filteredProducts, { pageSize: catalogPageSize, groupMode: catalogGroupMode }).length;
+  }, [filteredProducts, catalogPageSize, catalogGroupMode, format]);
 
   const nonIgnoredProducts = useMemo(() => {
     if (!products) return [];
@@ -173,10 +245,156 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
         return (
           <div className="bg-gray-700 w-full h-full overflow-auto p-4 md:p-8">
             <div className="no-print mx-auto max-w-4xl mb-4 space-y-4">
-                <button onClick={handlePrint} className="flex items-center justify-center gap-2 w-full bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
-                  <Printer size={18} />
-                  <span>Imprimir / Guardar como PDF</span>
-                </button>
+                {/* Botón Principal y Resumen de Páginas */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-800/90 p-3 rounded-xl border border-gray-600 shadow-md">
+                  <button 
+                    onClick={handlePrint} 
+                    className="flex-1 flex items-center justify-center gap-2 bg-brand-blue hover:bg-blue-600 text-white font-bold py-2.5 px-4 rounded-lg transition-transform transform hover:scale-[1.02] shadow-sm"
+                  >
+                    <Printer size={18} />
+                    <span>Imprimir / Guardar como PDF</span>
+                  </button>
+
+                  <div className="flex items-center justify-center gap-2 bg-gray-900/80 px-4 py-2 rounded-lg border border-gray-700 text-xs">
+                    <span className="font-semibold text-purple-300">{filteredProducts.length} productos</span>
+                    <span className="text-gray-500">•</span>
+                    <span className="font-semibold text-cyan-300">
+                      {estimatedCatalogPages} {estimatedCatalogPages === 1 ? 'hoja A4' : 'hojas A4'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filtros de Contenido del Catálogo (Fase 4) */}
+                <div className="bg-gray-800/80 p-3.5 rounded-xl border border-gray-600 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Búsqueda por texto */}
+                    <div className="relative flex-1 min-w-[220px]">
+                      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por título, serie o detalle..."
+                        value={catalogSearchTerm}
+                        onChange={(e) => setCatalogSearchTerm(e.target.value)}
+                        className="w-full bg-gray-900 text-white text-xs pl-9 pr-8 py-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500 placeholder-gray-400"
+                      />
+                      {catalogSearchTerm && (
+                        <button 
+                          onClick={() => setCatalogSearchTerm('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Selector de Categoría */}
+                    <div className="flex items-center gap-1.5 min-w-[170px]">
+                      <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Cat:</span>
+                      <select
+                        value={catalogSelectedCategory}
+                        onChange={(e) => setCatalogSelectedCategory(e.target.value)}
+                        className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500 capitalize"
+                      >
+                        <option value="Todas">Todas las Categorías</option>
+                        {allCategories.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Interruptores de Filtro Específicos */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-700/60">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Filtro: Solo con Foto Disponible (Fase 4 Requerida) */}
+                      <button
+                        type="button"
+                        onClick={() => setCatalogOnlyWithPhotos(!catalogOnlyWithPhotos)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                          catalogOnlyWithPhotos 
+                            ? 'bg-purple-600/90 border-purple-400 text-white shadow-xs' 
+                            : 'bg-gray-700/60 border-gray-600 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        <ImageIcon size={14} className={catalogOnlyWithPhotos ? "text-purple-200" : "text-gray-400"} />
+                        <span>Solo Foto Disponibles</span>
+                      </button>
+
+                      {/* Filtro: Solo en Stock */}
+                      <button
+                        type="button"
+                        onClick={() => setCatalogOnlyInStock(!catalogOnlyInStock)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                          catalogOnlyInStock 
+                            ? 'bg-green-600/80 border-green-400 text-white shadow-xs' 
+                            : 'bg-gray-700/60 border-gray-600 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        <PackageCheck size={14} className={catalogOnlyInStock ? "text-green-200" : "text-gray-400"} />
+                        <span>Solo con Stock</span>
+                      </button>
+
+                      {/* Filtro: Mostrar Precios */}
+                      <button
+                        type="button"
+                        onClick={() => setCatalogShowPrices(!catalogShowPrices)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                          catalogShowPrices 
+                            ? 'bg-blue-600/80 border-blue-400 text-white shadow-xs' 
+                            : 'bg-gray-700/60 border-gray-600 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        <span>Mostrar Precios</span>
+                      </button>
+                    </div>
+
+                    {/* Reseteo rápido si hay filtros activos */}
+                    {(catalogSearchTerm || catalogSelectedCategory !== 'Todas' || catalogOnlyWithPhotos || !catalogOnlyInStock) && (
+                      <button
+                        onClick={() => {
+                          setCatalogSearchTerm('');
+                          setCatalogSelectedCategory('Todas');
+                          setCatalogOnlyWithPhotos(false);
+                          setCatalogOnlyInStock(true);
+                        }}
+                        className="text-xs text-purple-400 hover:text-purple-300 underline font-medium"
+                      >
+                        Limpiar Filtros
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Configuración de Maquetación y Distribución A4 */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-gray-800/80 rounded-xl border border-gray-600 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Layers size={16} className="text-purple-400" />
+                    <span className="font-medium text-gray-300 text-xs">Organizar por:</span>
+                    <select
+                      value={catalogGroupMode}
+                      onChange={(e) => setCatalogGroupMode(e.target.value as CatalogGroupMode)}
+                      className="bg-gray-700 text-white text-xs rounded px-2.5 py-1.5 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    >
+                      <option value="series">Serie / Franquicia (Recomendado)</option>
+                      <option value="category">Categoría</option>
+                      <option value="none">Continuo (Sin dividir por sección)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <LayoutGrid size={16} className="text-cyan-400" />
+                    <span className="font-medium text-gray-300 text-xs">Diseño A4:</span>
+                    <select
+                      value={catalogPageSize}
+                      onChange={(e) => setCatalogPageSize(Number(e.target.value))}
+                      className="bg-gray-700 text-white text-xs rounded px-2.5 py-1.5 border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    >
+                      <option value={6}>6 productos / hoja (Estándar 3x2)</option>
+                      <option value={9}>9 productos / hoja (Compacto 3x3)</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="md:hidden p-3 text-center text-xs bg-yellow-900/50 text-yellow-300 rounded-lg border border-yellow-700">
                   Para una mejor experiencia de impresión, por favor usa una computadora. En móvil, puedes intentar usar la función de 'captura de pantalla con desplazamiento' de tu dispositivo.
                 </div>
@@ -207,7 +425,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
               )}
             </div>
             <div id="catalog-to-print" className="bg-white text-black p-8 md:p-12 rounded-lg shadow-2xl max-w-4xl mx-auto my-8">
-              <CatalogPreview products={filteredProducts} />
+              <CatalogPreview 
+                products={filteredProducts} 
+                groupMode={catalogGroupMode} 
+                pageSize={catalogPageSize} 
+                showPrices={catalogShowPrices}
+              />
             </div>
           </div>
         );

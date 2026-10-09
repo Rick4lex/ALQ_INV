@@ -23,57 +23,110 @@
     <style>
       @media print {
         @page {
-          size: A4;
-          margin: 2cm;
+          size: A4 portrait;
+          margin: 10mm 12mm;
+        }
+
+        *, *::before, *::after {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
 
         html, body {
           margin: 0 !important;
           padding: 0 !important;
-          background: white !important;
+          background: #ffffff !important;
+          width: 100% !important;
+          height: auto !important;
+          overflow: visible !important;
         }
 
-        body {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-        
         .no-print {
           display: none !important;
         }
 
-        /* Ocultar todo por defecto al imprimir */
+        /* Desactivar posicionamiento fijo y desbordamientos en modal al imprimir */
+        .fixed, .overflow-y-auto, .overflow-auto, [role="dialog"] {
+          position: static !important;
+          overflow: visible !important;
+          max-height: none !important;
+          height: auto !important;
+          background: transparent !important;
+          box-shadow: none !important;
+          border: none !important;
+          backdrop-filter: none !important;
+        }
+
+        /* Ocultar elementos de la interfaz general al imprimir */
         body * {
           visibility: hidden;
         }
         
-        /* Hacer visible solo el área del catálogo y su contenido */
+        /* Hacer visible exclusivamente el área del catálogo */
         #catalog-to-print, #catalog-to-print * {
           visibility: visible;
         }
         
-        /* Configurar el contenedor de impresión */
         #catalog-to-print {
-          position: static; /* Cambiado de absolute a static */
-          width: 100%;
-          padding: 0 !important; /* El padding es manejado por @page margin */
+          position: static !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          padding: 0 !important;
           margin: 0 !important;
           box-shadow: none !important;
           border: none !important;
+          background: transparent !important;
+        }
+
+        /* Hojas físicas A4 calibradas milimétricamente (Fase 3) */
+        .catalog-page {
+          box-sizing: border-box !important;
+          width: 100% !important;
+          min-height: 270mm !important;
+          max-height: 275mm !important;
+          height: 272mm !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+          page-break-after: always !important;
+          break-after: page !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          border: none !important;
+          background: #ffffff !important;
+        }
+
+        .catalog-page:last-child {
+          page-break-after: avoid !important;
+          break-after: avoid !important;
         }
         
-        /* Forzar un salto de página antes de la grilla */
-        #catalog-to-print .grid {
-          break-before: page;
+        /* Cuadrícula de 3 columnas estable para WebKit y Gecko */
+        .catalog-page .grid {
           display: grid !important;
-          grid-template-columns: repeat(3, 1fr) !important;
-          gap: 1rem !important;
+          grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          gap: 4mm !important;
+          flex-grow: 1 !important;
+          align-content: start !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
         }
         
-        /* Evitar que las tarjetas de producto se corten entre páginas */
-        #catalog-to-print .grid > * {
-           break-inside: avoid !important; /* 'page-break-inside' está obsoleto */
-           border: 1px solid #e5e7eb !important;
+        /* Tarjeta de producto en impresión */
+        .catalog-page article,
+        .catalog-page .grid > * {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+          border: 1px solid #e5e7eb !important;
+          box-shadow: none !important;
+          background: #ffffff !important;
+        }
+
+        .catalog-page img {
+          max-height: 100% !important;
+          object-fit: cover !important;
         }
       }
 
