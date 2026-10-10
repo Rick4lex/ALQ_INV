@@ -60,7 +60,7 @@ export interface UserPreferences {
 export interface AuditEntry {
   id: string;
   timestamp: number;
-  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore' | 'cloud_sync';
+  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'category_edit' | 'category_delete' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore' | 'cloud_sync';
   message: string;
 }
 

@@ -58,7 +58,9 @@ interface AppContextType extends AppStoreType {
   handleManualMovementSave: (movement: Omit<ManualMovement, 'id'>) => void;
   handleIgnoreProduct: (productId: string) => Promise<void>;
   handleRestoreProduct: (productToRestore: Product) => void;
-  handleCategorySave: (newCategory: string) => void;
+  handleCategorySave: (newCategory: string) => Promise<void> | void;
+  handleCategoryUpdate: (oldCategory: string, newCategoryRaw: string) => Promise<void>;
+  handleCategoryDelete: (categoryToDelete: string, reassignToCategory?: string) => Promise<void>;
   handleBackupDownload: () => void;
   handleCsvImport: (updates: CsvUpdatePayload[]) => void;
   handleRepairDuplicateVariantIds: () => void;
@@ -215,8 +217,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
 
         const loadedCategories = [...new Set(normalizedProducts.map(p => p.category).filter(Boolean))];
-        const newCats = [...new Set([...allCategories, ...(incomingCategories || []), ...loadedCategories])];
-        await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
+        let newCats: string[];
+        if (incomingCategories && incomingCategories.length > 0) {
+          // Si Sheets envía la lista autoritativa de categorías, se respetan junto a las de productos reales existentes
+          newCats = [...new Set([...incomingCategories, ...loadedCategories])];
+          // Limpiar de la base de datos local categorías huérfanas eliminadas en Sheet
+          await db.allCategories.clear();
+          await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
+        } else {
+          newCats = [...new Set([...allCategories, ...loadedCategories])];
+          await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
+        }
         setAllCategories(newCats);
 
         if (incomingMovements) {
@@ -454,15 +465,75 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [ignoredProductIds, setIgnoredProductIds, logAction, setModal]);
   
   const handleCategorySave = useCallback(async (newCategoryRaw: string) => {
-    const newCategory = newCategoryRaw.toLowerCase().replace(/\s+/g, '-');
+    const newCategory = newCategoryRaw.toLowerCase().replace(/\s+/g, '-').trim();
+    if (!newCategory) return;
     if (!allCategories.includes(newCategory)) {
         const newCategories = [...allCategories, newCategory];
-        await db.allCategories.add({ id: newCategory });
+        await db.allCategories.put({ id: newCategory });
         setAllCategories(newCategories);
         await logAction('category_add', `Categoría añadida: "${newCategory}"`);
+        triggerRemoteSave();
     }
-    setModal(null);
-  }, [allCategories, setAllCategories, logAction, setModal]);
+  }, [allCategories, setAllCategories, logAction, triggerRemoteSave]);
+
+  const handleCategoryUpdate = useCallback(async (oldCategory: string, newCategoryRaw: string) => {
+    const newCategory = newCategoryRaw.toLowerCase().replace(/\s+/g, '-').trim();
+    if (!newCategory || oldCategory === newCategory) return;
+
+    // 1. Actualizar lista de categorías en Dexie y Estado
+    const updatedCategories = allCategories.map(c => c === oldCategory ? newCategory : c);
+    const uniqueCategories = [...new Set(updatedCategories)];
+    await db.allCategories.delete(oldCategory);
+    await db.allCategories.put({ id: newCategory });
+    setAllCategories(uniqueCategories);
+
+    // 2. Cascada: Actualizar todos los productos que usaban la categoría anterior
+    const currentProducts = products || [];
+    const affectedProducts = currentProducts.filter(p => p.category === oldCategory);
+    let updatedProductsList = currentProducts;
+
+    if (affectedProducts.length > 0) {
+      const updatedProducts = affectedProducts.map(p => ({ ...p, category: newCategory }));
+      await db.products.bulkPut(updatedProducts);
+      updatedProductsList = currentProducts.map(p => p.category === oldCategory ? { ...p, category: newCategory } : p);
+      setProducts(updatedProductsList);
+    }
+
+    // 3. Actualizar filtro si estaba seleccionada la categoría antigua
+    if (preferences.selectedCategory === oldCategory) {
+      updatePreference('selectedCategory', newCategory);
+    }
+
+    await logAction('category_edit', `Categoría renombrada: "${oldCategory}" → "${newCategory}" (${affectedProducts.length} producto(s) actualizados).`);
+    triggerRemoteSave(updatedProductsList);
+  }, [allCategories, setAllCategories, products, setProducts, preferences, updatePreference, logAction, triggerRemoteSave]);
+
+  const handleCategoryDelete = useCallback(async (categoryToDelete: string, reassignToCategory?: string) => {
+    // 1. Eliminar de la lista de categorías en Dexie y Estado
+    const newCategories = allCategories.filter(c => c !== categoryToDelete);
+    await db.allCategories.delete(categoryToDelete);
+    setAllCategories(newCategories);
+
+    // 2. Reasignar productos si aplica
+    const currentProducts = products || [];
+    const affectedProducts = currentProducts.filter(p => p.category === categoryToDelete);
+    let updatedProductsList = currentProducts;
+
+    if (affectedProducts.length > 0 && reassignToCategory) {
+      const updatedProducts = affectedProducts.map(p => ({ ...p, category: reassignToCategory }));
+      await db.products.bulkPut(updatedProducts);
+      updatedProductsList = currentProducts.map(p => p.category === categoryToDelete ? { ...p, category: reassignToCategory } : p);
+      setProducts(updatedProductsList);
+    }
+
+    // 3. Si la preferencia de filtro tenía esta categoría, restablecer a 'Todas'
+    if (preferences.selectedCategory === categoryToDelete) {
+      updatePreference('selectedCategory', 'Todas');
+    }
+
+    await logAction('category_delete', `Categoría eliminada: "${categoryToDelete}"${reassignToCategory ? ` (${affectedProducts.length} producto(s) reasignados a "${reassignToCategory}")` : ''}.`);
+    triggerRemoteSave(updatedProductsList);
+  }, [allCategories, setAllCategories, products, setProducts, preferences, updatePreference, logAction, triggerRemoteSave]);
 
   const handleBackupDownload = useCallback(async () => {
     setModal({
@@ -759,6 +830,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedProductIds, selectedTags, setSelectedTags, handleTextLoad, handleRestoreBackup, handleReset,
     updatePreference, handleIgnoredChange, handleProductDelete, handleSaveMovement,
     handleManualMovementSave, handleIgnoreProduct, handleRestoreProduct, handleCategorySave,
+    handleCategoryUpdate, handleCategoryDelete,
     handleBackupDownload, handleCsvImport, handleRepairDuplicateVariantIds, handleProductMerge,
     handleImageClick, toggleFusionSelection, startFusion, handleBulkEditSave,
     handleBulkIgnore, handleBulkDelete, changeFullscreenImage,
@@ -768,7 +840,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     store, modal, fullscreenData, currentView, fusionMode, selectedForFusion, 
     selectedProductIds, selectedTags, handleTextLoad, handleRestoreBackup, handleReset, updatePreference, 
     handleIgnoredChange, handleProductDelete, handleSaveMovement, handleManualMovementSave, 
-    handleIgnoreProduct, handleRestoreProduct, handleCategorySave, handleBackupDownload, 
+    handleIgnoreProduct, handleRestoreProduct, handleCategorySave, handleCategoryUpdate, handleCategoryDelete, handleBackupDownload, 
     handleCsvImport, handleRepairDuplicateVariantIds, handleProductMerge, handleImageClick, 
     toggleFusionSelection, startFusion, handleBulkEditSave, handleBulkIgnore, 
     handleBulkDelete, changeFullscreenImage, handleMultipleMovementsDelete,

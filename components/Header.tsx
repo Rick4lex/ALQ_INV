@@ -51,9 +51,9 @@ const Header: React.FC = () => {
                 <BarChartHorizontal size={18} />
                 <span className="hidden sm:inline">Finanzas</span>
               </button>
-               <button onClick={() => setModal({ type: 'add-category' })} className="flex items-center gap-2 bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
+               <button onClick={() => setModal({ type: 'add-category' })} className="flex items-center gap-2 bg-brand-blue hover:bg-blue-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105" title="Gestión de Categorías">
                 <Tag size={18} />
-                <span className="hidden sm:inline">Nueva Cat.</span>
+                <span className="hidden sm:inline">Categorías</span>
               </button>
                <button onClick={() => setModal({ type: 'add' })} className="flex items-center gap-2 bg-brand-purple hover:bg-purple-600 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
                 <Plus size={18} />

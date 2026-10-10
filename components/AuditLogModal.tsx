@@ -18,6 +18,8 @@ const AuditLogModal: React.FC<AuditLogModalProps> = ({ isOpen, onClose }) => {
     product_delete: <Trash2 className="text-red-400" />,
     product_merge: <Combine className="text-green-400" />,
     category_add: <Tag className="text-blue-400" />,
+    category_edit: <Edit className="text-purple-400" />,
+    category_delete: <Trash2 className="text-rose-400" />,
     product_ignore: <EyeOff className="text-yellow-400" />,
     product_restore: <Eye className="text-yellow-400" />,
     data_repair: <Wrench className="text-blue-400" />,

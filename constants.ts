@@ -19,6 +19,7 @@ export const LOCAL_STORAGE_KEYS = {
   MANUAL_MOVEMENTS: 'alkima-mizu-manual-movements',
   OMITTED_HINTS: 'alkima-mizu-omitted-hints',
   CATALOG_SELECTED_HINTS: 'alkima-mizu-catalog-hints',
+  MARKDOWN_SELECTED_HINTS: 'alkima-mizu-markdown-hints',
   DATA_VERSION: 'alkima-mizu-data-version',
   AUDIT_LOG: 'alkima-mizu-audit-log',
 };
