@@ -8,7 +8,7 @@ import { runMigration } from '../migration';
 export const useAppStore = () => {
     const [products, setProducts] = useState<Product[] | null>(null);
     const [preferences, setPreferences] = useState<UserPreferences>({
-        viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false,
+        viewMode: 'grid', searchTerm: '', selectedCategory: 'Todas', showAvailableOnly: false, showIgnoredOnly: false, photoFilter: 'all',
     });
     const [ignoredProductIds, setIgnoredProductIds] = useState<string[]>([]);
     const [allCategories, setAllCategories] = useState<string[]>(INITIAL_CATEGORIES);

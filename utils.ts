@@ -31,6 +31,25 @@ export const productSortComparator = (a: Product, b: Product): number => {
     return priceA - priceB;
 };
 
+export const hasProductPhoto = (product: Product): boolean => {
+  return Boolean(
+    product.imageUrls && 
+    Array.isArray(product.imageUrls) && 
+    product.imageUrls.length > 0 && 
+    product.imageUrls[0].trim() !== ''
+  );
+};
+
+export const productPhotoPriorityComparator = (a: Product, b: Product): number => {
+  const hasPhotoA = hasProductPhoto(a);
+  const hasPhotoB = hasProductPhoto(b);
+
+  if (hasPhotoA && !hasPhotoB) return -1;
+  if (!hasPhotoA && hasPhotoB) return 1;
+
+  return productSortComparator(a, b);
+};
+
 export const formatVariantPrice = (variant: Variant, options: { markdown?: boolean } = {}): string => {
   const { markdown = false } = options;
   if (typeof variant.price !== 'number' || variant.price <= 0) return '';

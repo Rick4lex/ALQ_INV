@@ -7,7 +7,7 @@ import FilterBar from './components/FilterBar';
 import ProductDisplay from './components/ProductDisplay';
 import Footer from './components/Footer';
 import { X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { productSortComparator } from './utils';
+import { productSortComparator, productPhotoPriorityComparator, hasProductPhoto } from './utils';
 import FinancialPanel from './components/FinancialPanel';
 import BulkActionBar from './components/BulkActionBar';
 
@@ -76,8 +76,16 @@ const App: React.FC = () => {
       const matchesAvailability = !preferences.showAvailableOnly || product.variants.some(v => v.stock > 0);
       const matchesTags = selectedTags.length === 0 || selectedTags.every(tag => (product.imageHint || []).includes(tag));
 
-      return matchesSearch && matchesCategory && matchesAvailability && matchesTags;
-    }).sort(productSortComparator);
+      // Filtro por foto disponible (Tri-estado)
+      let matchesPhoto = true;
+      if (preferences.photoFilter === 'with_photo') {
+        matchesPhoto = hasProductPhoto(product);
+      } else if (preferences.photoFilter === 'without_photo') {
+        matchesPhoto = !hasProductPhoto(product);
+      }
+
+      return matchesSearch && matchesCategory && matchesAvailability && matchesTags && matchesPhoto;
+    }).sort(preferences.photoFilter === 'photos_first' ? productPhotoPriorityComparator : productSortComparator);
   }, [products, preferences, ignoredProductIds, fusionMode, selectedTags, selectedProductIds]);
   
   if (isMigrating) {

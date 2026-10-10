@@ -89,20 +89,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const isAnyModalOpen = useCallback(() => modal !== null || fullscreenData !== null, [modal, fullscreenData]);
 
-  const triggerRemoteSave = useCallback(async (newStateToSave?: any) => {
+  const triggerRemoteSave = useCallback(async (explicitProducts?: Product[]) => {
     try {
-      const currentProducts = newStateToSave || products || await db.products.toArray();
+      // Siempre obtener la copia más fresca y real desde Dexie/IndexedDB si no se pasa explícitamente
+      const currentProducts = explicitProducts || await db.products.toArray();
+      const dbCategories = await db.allCategories.toArray();
+      const currentCategories = dbCategories.map(c => c.id);
+      const allMovements = await db.movements.toArray();
+      const groupedMovements = allMovements.reduce((acc: Movements, mov) => {
+        if (!acc[mov.variantId]) acc[mov.variantId] = [];
+        acc[mov.variantId].push(mov);
+        return acc;
+      }, {});
+
       const payload = {
         products: currentProducts,
-        categories: allCategories,
-        movements: movements,
+        categories: currentCategories,
+        movements: groupedMovements,
         timestamp: Date.now()
       };
       await syncService.pushRemoteData(payload);
     } catch (error) {
-      console.error("Fallo al guardar en Sheets:", error);
+      console.warn("Fallo al guardar en Sheets en segundo plano:", error);
     }
-  }, [products, allCategories, movements]);
+  }, []);
 
   const handleManualSync = useCallback(async (isSilent = false) => {
     if (isSyncing) return;
@@ -118,25 +128,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       if (Array.isArray(remoteData)) {
         incomingProducts = remoteData;
-      } else if (remoteData.products && Array.isArray(remoteData.products)) {
-        incomingProducts = remoteData.products;
-        if (remoteData.categories && Array.isArray(remoteData.categories)) {
+      } else if (remoteData && typeof remoteData === 'object') {
+        if (Array.isArray(remoteData.products)) {
+          incomingProducts = remoteData.products;
+        } else if (remoteData.data && Array.isArray(remoteData.data)) {
+          incomingProducts = remoteData.data;
+        } else if (remoteData.data && typeof remoteData.data === 'object' && Array.isArray(remoteData.data.products)) {
+          incomingProducts = remoteData.data.products;
+          if (Array.isArray(remoteData.data.categories)) {
+            incomingCategories = remoteData.data.categories;
+          }
+          if (remoteData.data.movements) {
+            incomingMovements = remoteData.data.movements;
+          }
+        } else if (Array.isArray(remoteData.placeholderImages)) {
+          incomingProducts = remoteData.placeholderImages;
+        }
+
+        if (Array.isArray(remoteData.categories)) {
           incomingCategories = remoteData.categories;
         }
         if (remoteData.movements) {
           incomingMovements = remoteData.movements;
         }
-      } else if (remoteData.placeholderImages && Array.isArray(remoteData.placeholderImages)) {
-        incomingProducts = remoteData.placeholderImages;
-      } else if (remoteData.data && Array.isArray(remoteData.data)) {
-        incomingProducts = remoteData.data;
       }
 
-      if (incomingProducts && incomingProducts.length > 0) {
+      if (incomingProducts !== null) {
         const normalizedProducts: Product[] = incomingProducts
-          .filter((p: any) => p && p.id)
+          .filter((p: any) => p && (p.id || p.title))
           .map((p: any) => {
             const prod: any = { ...p };
+            if (!prod.id) prod.id = `prod-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             if (prod.imageHint && typeof prod.imageHint === 'string') {
               prod.imageHint = [prod.imageHint];
             } else if (!Array.isArray(prod.imageHint)) {
@@ -160,10 +182,39 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             return prod as Product;
           });
 
-        await db.products.bulkPut(normalizedProducts);
+        // CONCILIACIÓN BIDIRECCIONAL:
+        // Detectar productos que existían en IndexedDB pero ya no están en Google Sheets (fueron borrados)
+        const incomingIds = new Set(normalizedProducts.map(p => String(p.id)));
+        const currentDbProducts = await db.products.toArray();
+        const deletedProducts = currentDbProducts.filter(p => !incomingIds.has(String(p.id)));
+        const deletedIds = deletedProducts.map(p => p.id);
+        const deletedVariantIds = deletedProducts.flatMap(p => (p.variants || []).map(v => v.id));
+
+        // Transacción atómica en Dexie para reflejar exactamente el catálogo remoto
+        await (db as Dexie).transaction('rw', db.products, db.movements, async () => {
+          if (deletedIds.length > 0) {
+            await db.products.bulkDelete(deletedIds);
+          }
+          if (deletedVariantIds.length > 0) {
+            await db.movements.where('variantId').anyOf(deletedVariantIds).delete();
+          }
+          if (normalizedProducts.length > 0) {
+            await db.products.bulkPut(normalizedProducts);
+          }
+        });
+
+        // Actualizar el estado de React con la lista limpia
         setProducts(normalizedProducts);
 
-        const loadedCategories = [...new Set(normalizedProducts.map(p => p.category))];
+        if (deletedVariantIds.length > 0) {
+          setMovements(prev => {
+            const next = { ...prev };
+            deletedVariantIds.forEach(vid => delete next[vid]);
+            return next;
+          });
+        }
+
+        const loadedCategories = [...new Set(normalizedProducts.map(p => p.category).filter(Boolean))];
         const newCats = [...new Set([...allCategories, ...(incomingCategories || []), ...loadedCategories])];
         await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
         setAllCategories(newCats);
@@ -174,7 +225,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setMovements(incomingMovements);
         }
 
-        await logAction('cloud_sync', `Sincronización remota exitosa (${normalizedProducts.length} productos).`);
+        await logAction(
+          'cloud_sync', 
+          `Sincronización remota exitosa: ${normalizedProducts.length} productos actualizados${deletedIds.length > 0 ? `, ${deletedIds.length} eliminados conciliados` : ''}.`
+        );
       }
     } catch (error) {
       console.error("Error sincronizando:", error);
@@ -503,7 +557,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
     await logAction('csv_update', `Se actualizaron ${updates.length} variantes desde un archivo CSV.`);
     setModal(null);
-  }, [products, setProducts, setMovements, logAction, setModal]);
+    triggerRemoteSave();
+  }, [products, setProducts, setMovements, logAction, setModal, triggerRemoteSave]);
 
   const handleRepairDuplicateVariantIds = useCallback(async () => {
     if (!products) return;
@@ -546,8 +601,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await db.products.bulkPut(newProducts);
     setProducts(newProducts);
     await logAction('data_repair', `Se repararon ${repairedCount} IDs de variantes duplicados.`);
+    triggerRemoteSave();
     alert(`Reparación completada. Se corrigieron ${repairedCount} IDs de variantes duplicados.`);
-  }, [products, movements, setProducts, setMovements, logAction]);
+  }, [products, movements, setProducts, setMovements, logAction, triggerRemoteSave]);
 
   const handleProductMerge = useCallback(async (primaryProductId: string, secondaryProductId: string) => {
     setModal({
@@ -572,11 +628,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setFusionMode(false);
             setSelectedForFusion([]);
             setModal(null);
+            triggerRemoteSave();
         },
         confirmText: 'Sí, Fusionar',
         confirmClass: 'bg-brand-green hover:bg-green-600',
     });
-  }, [products, setProducts, logAction, setModal, setFusionMode, setSelectedForFusion]);
+  }, [products, setProducts, logAction, setModal, setFusionMode, setSelectedForFusion, triggerRemoteSave]);
   
   const handleImageClick = useCallback((images: string[]) => setFullscreenData({ images, index: 0 }), []);
   
@@ -629,7 +686,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await logAction('bulk_edit', `Se editaron ${selectedProductIds.size} productos en lote.`);
     setModal(null);
     setSelectedProductIds(new Set());
-  }, [products, selectedProductIds, setProducts, logAction, setModal, setSelectedProductIds]);
+    triggerRemoteSave();
+  }, [products, selectedProductIds, setProducts, logAction, setModal, setSelectedProductIds, triggerRemoteSave]);
 
   const handleBulkIgnore = useCallback(() => {
     setModal({
@@ -675,11 +733,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             await logAction('bulk_delete', `Se eliminaron ${selectedProductIds.size} productos en lote.`);
             setModal(null);
             setSelectedProductIds(new Set());
+            triggerRemoteSave();
         },
         confirmText: 'Sí, Eliminar',
         confirmClass: 'bg-brand-red hover:bg-red-600',
     });
-  }, [selectedProductIds, products, setProducts, setMovements, logAction, setModal, setSelectedProductIds]);
+  }, [selectedProductIds, products, setProducts, setMovements, logAction, setModal, setSelectedProductIds, triggerRemoteSave]);
   
   const handleMultipleMovementsDelete = useCallback(async (variantId: string, movementIds: string[]) => {
       setModal({

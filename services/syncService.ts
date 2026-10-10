@@ -21,16 +21,20 @@ export const syncService = {
   // PUSH: Enviar datos locales hacia Sheets
   async pushRemoteData(fullState: any) {
     try {
-      // Usamos text/plain para evadir el OPTIONS preflight error (CORS)
+      // Usamos text/plain para evadir el OPTIONS preflight error (CORS en Apps Script)
+      const payload = {
+        action: 'FULL_SYNC',
+        data: fullState,
+        // Compatibilidad: también incluir propiedades de nivel superior
+        ...(typeof fullState === 'object' && fullState !== null ? fullState : {})
+      };
+
       const response = await fetch(SCRIPT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
-        body: JSON.stringify({
-          action: 'FULL_SYNC',
-          data: fullState
-        })
+        body: JSON.stringify(payload)
       });
       
       let result: any = null;
@@ -41,11 +45,11 @@ export const syncService = {
       }
 
       if (result && result.status && result.status !== 'success' && result.status !== 'ok') {
-         throw new Error(result.error || result.message || 'Unknown sync error');
+         throw new Error(result.error || result.message || 'Error desconocido de sincronización');
       }
       return true;
     } catch (error) {
-      console.error('Error enviando datos remotos:', error);
+      console.error('Error enviando datos remotos a Google Sheets:', error);
       throw error;
     }
   }

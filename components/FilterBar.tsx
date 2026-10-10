@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
 import ToggleSwitch from './ToggleSwitch';
-import { Search, X, Check, Tag, ChevronDown } from 'lucide-react';
+import { Search, X, Check, Tag, ChevronDown, Image as ImageIcon, ImageOff, Sparkles } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
+import { PhotoFilterMode } from '../types';
 
 interface FilterBarProps {
   productCount: number;
@@ -26,6 +27,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
   } = useAppContext();
 
   const [tagsDropdownOpen, setTagsDropdownOpen] = useState(false);
+  const [photoDropdownOpen, setPhotoDropdownOpen] = useState(false);
   const allFilterCategories = ['Todas', ...allCategories];
 
   const handleTagToggle = (tag: string) => {
@@ -33,6 +35,50 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
     if (newTags.has(tag)) newTags.delete(tag);
     else newTags.add(tag);
     setSelectedTags(Array.from(newTags));
+  };
+
+  const photoFilterOptions: Array<{
+    id: PhotoFilterMode;
+    label: string;
+    sublabel: string;
+    icon: React.ReactNode;
+    colorClass: string;
+  }> = [
+    {
+      id: 'all',
+      label: 'Todas las fotos',
+      sublabel: 'Mostrar todo el inventario',
+      icon: <ImageIcon size={16} className="text-gray-400" />,
+      colorClass: 'text-gray-200',
+    },
+    {
+      id: 'with_photo',
+      label: 'Solo con foto',
+      sublabel: 'Oculta productos sin imagen',
+      icon: <ImageIcon size={16} className="text-green-400" />,
+      colorClass: 'text-green-400',
+    },
+    {
+      id: 'without_photo',
+      label: 'Solo sin foto',
+      sublabel: 'Modo auditoría para completar',
+      icon: <ImageOff size={16} className="text-yellow-400" />,
+      colorClass: 'text-yellow-400',
+    },
+    {
+      id: 'photos_first',
+      label: 'Con foto primero',
+      sublabel: 'Ordenar priorizando imágenes',
+      icon: <Sparkles size={16} className="text-purple-400" />,
+      colorClass: 'text-purple-400',
+    },
+  ];
+
+  const activePhotoOption = photoFilterOptions.find(opt => opt.id === (preferences.photoFilter || 'all')) || photoFilterOptions[0];
+
+  const handleSelectPhotoFilter = (mode: PhotoFilterMode) => {
+    updatePreference('photoFilter', mode);
+    setPhotoDropdownOpen(false);
   };
   
   if (fusionMode) {
@@ -64,27 +110,35 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
 
   return (
     <div className="sticky top-[89px] z-10 bg-gray-800/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-purple-500/20">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-center">
-        <div className="relative lg:col-span-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-center">
+        {/* 1. Buscador */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input
             type="text"
             placeholder="Buscar por título..."
             value={preferences.searchTerm}
             onChange={(e) => updatePreference('searchTerm', e.target.value)}
-            className="w-full bg-gray-700/50 border border-gray-600 rounded-lg py-2 pl-10 pr-4 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+            className="w-full bg-gray-700/50 border border-gray-600 rounded-lg py-2 pl-9 pr-4 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
           />
         </div>
         
-        <div className="relative lg:col-span-1">
-          <button onClick={() => setTagsDropdownOpen(prev => !prev)} className="w-full flex justify-between items-center bg-gray-700/50 border border-gray-600 rounded-lg py-2 px-3 text-left">
-              <span className="flex items-center gap-2">
-                <Tag size={18} className="text-gray-400" />
-                <span>
-                  {selectedTags.length > 0 ? `${selectedTags.length} serie(s)` : 'Filtrar por Series / Hints'}
+        {/* 2. Filtro de Series */}
+        <div className="relative">
+          <button 
+            onClick={() => {
+              setTagsDropdownOpen(prev => !prev);
+              setPhotoDropdownOpen(false);
+            }} 
+            className="w-full flex justify-between items-center bg-gray-700/50 border border-gray-600 rounded-lg py-2 px-3 text-left hover:bg-gray-700 transition-colors"
+          >
+              <span className="flex items-center gap-2 truncate">
+                <Tag size={17} className="text-gray-400 flex-shrink-0" />
+                <span className="text-sm truncate">
+                  {selectedTags.length > 0 ? `${selectedTags.length} serie(s)` : 'Series / Hints'}
                 </span>
               </span>
-              <ChevronDown size={20} className={`transition-transform ${tagsDropdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={18} className={`transition-transform text-gray-400 flex-shrink-0 ${tagsDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
           {tagsDropdownOpen && (
             <div className="absolute top-full mt-2 w-full bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-20 p-2">
@@ -92,7 +146,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
                 {allTags.map(tag => (
                   <label key={tag} className="flex items-center gap-2 p-2 rounded hover:bg-gray-700 cursor-pointer text-sm">
                     <input type="checkbox" checked={selectedTags.includes(tag)} onChange={() => handleTagToggle(tag)} className="form-checkbox h-4 w-4 rounded bg-gray-900 border-gray-600 text-purple-500 focus:ring-purple-600" />
-                    {tag}
+                    <span className="truncate">{tag}</span>
                   </label>
                 ))}
               </div>
@@ -100,7 +154,62 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
           )}
         </div>
 
-        <div className="flex items-center justify-center lg:justify-end gap-4 flex-wrap lg:col-span-1">
+        {/* 3. Selector de Fotos y Orden (Alternativa 2) */}
+        <div className="relative">
+          <button 
+            onClick={() => {
+              setPhotoDropdownOpen(prev => !prev);
+              setTagsDropdownOpen(false);
+            }} 
+            className={`w-full flex justify-between items-center border rounded-lg py-2 px-3 text-left transition-colors ${
+              preferences.photoFilter === 'with_photo'
+                ? 'bg-green-950/40 border-green-500/60 text-green-300'
+                : preferences.photoFilter === 'without_photo'
+                ? 'bg-yellow-950/40 border-yellow-500/60 text-yellow-300'
+                : preferences.photoFilter === 'photos_first'
+                ? 'bg-purple-950/40 border-purple-500/60 text-purple-300'
+                : 'bg-gray-700/50 border-gray-600 text-gray-200 hover:bg-gray-700'
+            }`}
+          >
+            <span className="flex items-center gap-2 truncate">
+              {activePhotoOption.icon}
+              <span className="text-sm font-medium truncate">{activePhotoOption.label}</span>
+            </span>
+            <ChevronDown size={18} className={`transition-transform text-gray-400 flex-shrink-0 ${photoDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {photoDropdownOpen && (
+            <div className="absolute top-full mt-2 w-full sm:w-64 left-0 sm:left-auto sm:right-0 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl z-30 p-1.5 space-y-1">
+              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-700/80 mb-1">
+                Filtro y Orden de Fotos
+              </div>
+              {photoFilterOptions.map(option => {
+                const isSelected = (preferences.photoFilter || 'all') === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    onClick={() => handleSelectPhotoFilter(option.id)}
+                    className={`w-full text-left p-2 rounded-lg flex items-start gap-2.5 transition-colors ${
+                      isSelected ? 'bg-purple-900/40 border border-purple-500/50 text-white' : 'hover:bg-gray-700/60 text-gray-300'
+                    }`}
+                  >
+                    <div className="mt-0.5 flex-shrink-0">{option.icon}</div>
+                    <div className="flex-grow min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-semibold ${option.colorClass}`}>{option.label}</span>
+                        {isSelected && <Check size={14} className="text-purple-400 flex-shrink-0" />}
+                      </div>
+                      <p className="text-[11px] text-gray-400 leading-tight mt-0.5">{option.sublabel}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 4. Toggles y Contador */}
+        <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
           <ToggleSwitch
             checked={preferences.showAvailableOnly}
             onChange={(show) => updatePreference('showAvailableOnly', show)}

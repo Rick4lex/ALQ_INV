@@ -45,12 +45,15 @@ export type Movements = Record<string, Movement[]>; // Keyed by variantId
 
 export type ViewMode = 'grid' | 'list';
 
+export type PhotoFilterMode = 'all' | 'with_photo' | 'without_photo' | 'photos_first';
+
 export interface UserPreferences {
   viewMode: ViewMode;
   searchTerm: string;
   selectedCategory: string;
   showAvailableOnly: boolean;
   showIgnoredOnly: boolean;
+  photoFilter?: PhotoFilterMode;
   key?: 'user'; // Key for Dexie single-object table
 }
 
