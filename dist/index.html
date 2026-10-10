@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alquima Mizu - Gestor de Catálogo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'brand-purple': '#7C3AED',
+              'brand-indigo': '#4F46E5',
+              'brand-green': '#16A34A',
+              'brand-blue': '#3B82F6',
+              'brand-red': '#EF4444',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      @media print {
+        @page {
+          size: A4 portrait;
+          margin: 10mm 12mm;
+        }
+
+        *, *::before, *::after {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          width: 100% !important;
+          height: auto !important;
+          overflow: visible !important;
+        }
+
+        .no-print {
+          display: none !important;
+        }
+
+        /* Desactivar posicionamiento fijo y desbordamientos en modal al imprimir */
+        .fixed, .overflow-y-auto, .overflow-auto, [role="dialog"] {
+          position: static !important;
+          overflow: visible !important;
+          max-height: none !important;
+          height: auto !important;
+          background: transparent !important;
+          box-shadow: none !important;
+          border: none !important;
+          backdrop-filter: none !important;
+        }
+
+        /* Ocultar elementos de la interfaz general al imprimir */
+        body * {
+          visibility: hidden;
+        }
+        
+        /* Hacer visible exclusivamente el área del catálogo */
+        #catalog-to-print, #catalog-to-print * {
+          visibility: visible;
+        }
+        
+        #catalog-to-print {
+          position: static !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          box-shadow: none !important;
+          border: none !important;
+          background: transparent !important;
+        }
+
+        /* Hojas físicas A4 calibradas milimétricamente (Fase 3) */
+        .catalog-page {
+          box-sizing: border-box !important;
+          width: 100% !important;
+          min-height: 270mm !important;
+          max-height: 275mm !important;
+          height: 272mm !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+          page-break-after: always !important;
+          break-after: page !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          border: none !important;
+          background: #ffffff !important;
+        }
+
+        .catalog-page:last-child {
+          page-break-after: avoid !important;
+          break-after: avoid !important;
+        }
+        
+        /* Cuadrícula de 3 columnas estable para WebKit y Gecko */
+        .catalog-page .grid {
+          display: grid !important;
+          grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          gap: 4mm !important;
+          flex-grow: 1 !important;
+          align-content: start !important;
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+        }
+        
+        /* Tarjeta de producto en impresión */
+        .catalog-page article,
+        .catalog-page .grid > * {
+          break-inside: avoid !important;
+          page-break-inside: avoid !important;
+          border: 1px solid #e5e7eb !important;
+          box-shadow: none !important;
+          background: #ffffff !important;
+        }
+
+        .catalog-page img {
+          max-height: 100% !important;
+          object-fit: cover !important;
+        }
+      }
+
+      /* Basic Tooltip Styles */
+      [data-tooltip-id="kpi-tooltip"] {
+        position: relative;
+        cursor: help;
+      }
+      [data-tooltip-id="kpi-tooltip"]::after {
+        content: attr(data-tooltip-content);
+        position: absolute;
+        bottom: 125%; /* Position above the icon */
+        right: 50%;
+        transform: translateX(50%);
+        background-color: #1f2937; /* bg-gray-800 */
+        color: #d1d5db; /* text-gray-300 */
+        border: 1px solid #4b5563; /* border-gray-600 */
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem; /* rounded-lg */
+        font-size: 0.75rem; /* text-xs */
+        line-height: 1.25;
+        white-space: pre-wrap;
+        width: max-content;
+        max-width: 250px;
+        text-align: center;
+        z-index: 10;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+        pointer-events: none;
+      }
+      [data-tooltip-id="kpi-tooltip"]:hover::after {
+        opacity: 1;
+        visibility: visible;
+      }
+      
+      .kpi-carousel::-webkit-scrollbar {
+        display: none;
+      }
+      .kpi-carousel {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+
+    </style>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.553.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.2",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.0",
+    "dexie": "https://aistudiocdn.com/dexie@^4.2.1"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/ALQ_INV/assets/index-30ouUt--.js"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="root"></div>
+</body>
+</html>
