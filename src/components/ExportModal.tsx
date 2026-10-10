@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Product } from '../types';
 import Modal from './Modal';
 import { 
   Copy, Check, Printer, Filter, Download, 
-  Layers, LayoutGrid, Search, Image as ImageIcon, PackageCheck, X, RotateCcw
+  Layers, LayoutGrid, Search, Image as ImageIcon, PackageCheck, X, RotateCcw,
+  ChevronDown, AlertTriangle
 } from 'lucide-react';
 import CatalogPreview from './CatalogPreview';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -39,7 +40,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
   const [catalogSelectedCategory, setCatalogSelectedCategory] = useState<string>('Todas');
 
   // Estado para Markdown (Filtros Avanzados y Selección Múltiple)
-  const [markdownSelectedHints, setMarkdownSelectedHints] = useLocalStorage<string[]>(LOCAL_STORAGE_KEYS.MARKDOWN_SELECTED_HINTS, []);
+  const [markdownSelectedHints, setMarkdownSelectedHints] = useState<string[]>([]);
+  const hasInitializedMarkdownHintsRef = useRef<boolean>(false);
   const [markdownSelectedCategory, setMarkdownSelectedCategory] = useState<string>('Todas');
   const [markdownOnlyInStock, setMarkdownOnlyInStock] = useState<boolean>(true);
   const [markdownOnlyWithPhotos, setMarkdownOnlyWithPhotos] = useState<boolean>(false);
@@ -48,6 +50,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
   const [markdownBoldStyle, setMarkdownBoldStyle] = useState<'whatsapp' | 'standard'>('whatsapp');
   const [markdownShowPrices, setMarkdownShowPrices] = useState<boolean>(true);
   const [markdownHintSearchTerm, setMarkdownHintSearchTerm] = useState<string>('');
+  const [isMarkdownSeriesExpanded, setIsMarkdownSeriesExpanded] = useState<boolean>(true);
 
   const [content, setContent] = useState('');
   const [copied, setCopied] = useState(false);
@@ -95,17 +98,17 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
     }
   }, [isOpen, format, allHints, setCatalogSelectedHints]);
 
-  // Inicialización de hints para Markdown: si no hay ninguno guardado, seleccionar todos
+  // Inicialización de hints para Markdown al abrir el modal
   useEffect(() => {
     if (isOpen && format === 'markdown') {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEYS.MARKDOWN_SELECTED_HINTS);
-      if (stored === null || JSON.parse(stored || '[]').length === 0) {
-        if (allAvailableMarkdownHints.length > 0) {
-          setMarkdownSelectedHints(allAvailableMarkdownHints);
-        }
+      if (!hasInitializedMarkdownHintsRef.current && allAvailableMarkdownHints.length > 0) {
+        setMarkdownSelectedHints(allAvailableMarkdownHints);
+        hasInitializedMarkdownHintsRef.current = true;
       }
+    } else if (!isOpen) {
+      hasInitializedMarkdownHintsRef.current = false;
     }
-  }, [isOpen, format, allAvailableMarkdownHints, setMarkdownSelectedHints]);
+  }, [isOpen, format, allAvailableMarkdownHints]);
 
   const filteredProducts = useMemo(() => {
     if (!products) return [];
@@ -400,6 +403,45 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
     return hintsWithCounts.filter(h => h.hint.toLowerCase().includes(term));
   }, [hintsWithCounts, markdownHintSearchTerm]);
 
+  // Manejadores para selección múltiple de hints
+  const handleSelectAllHints = useCallback(() => {
+    if (markdownHintSearchTerm.trim()) {
+      const visibleHints = filteredHintsForSelection.map(h => h.hint);
+      setMarkdownSelectedHints(prev => Array.from(new Set([...prev, ...visibleHints])));
+    } else {
+      setMarkdownSelectedHints(allAvailableMarkdownHints);
+    }
+  }, [markdownHintSearchTerm, filteredHintsForSelection, allAvailableMarkdownHints]);
+
+  const handleDeselectAllHints = useCallback(() => {
+    if (markdownHintSearchTerm.trim()) {
+      const visibleHints = filteredHintsForSelection.map(h => h.hint);
+      setMarkdownSelectedHints(prev => prev.filter(h => !visibleHints.includes(h)));
+    } else {
+      setMarkdownSelectedHints([]);
+    }
+  }, [markdownHintSearchTerm, filteredHintsForSelection]);
+
+  const handleInvertHints = useCallback(() => {
+    if (markdownHintSearchTerm.trim()) {
+      const visibleHints = filteredHintsForSelection.map(h => h.hint);
+      setMarkdownSelectedHints(prev => {
+        const next = [...prev];
+        visibleHints.forEach(h => {
+          const idx = next.indexOf(h);
+          if (idx >= 0) {
+            next.splice(idx, 1);
+          } else {
+            next.push(h);
+          }
+        });
+        return next;
+      });
+    } else {
+      setMarkdownSelectedHints(prev => allAvailableMarkdownHints.filter(h => !prev.includes(h)));
+    }
+  }, [markdownHintSearchTerm, filteredHintsForSelection, allAvailableMarkdownHints]);
+
   // ¿Hay filtros de Markdown modificados?
   const isAnyMarkdownFilterActive = useMemo(() => {
     return (
@@ -637,308 +679,415 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
 
       case 'markdown':
         return (
-          <div className="p-4 sm:p-6 space-y-4">
-            {/* Panel de Filtros Generales */}
-            <div className="bg-gray-800/80 p-3.5 rounded-xl border border-gray-700 space-y-3 shadow-xs">
-              <div className="flex flex-wrap items-center gap-2.5">
-                {/* Búsqueda por texto */}
-                <div className="relative flex-1 min-w-[200px]">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar producto, serie o detalle..."
-                    value={markdownSearchTerm}
-                    onChange={(e) => setMarkdownSearchTerm(e.target.value)}
-                    className="w-full bg-gray-900 text-white text-xs pl-8 pr-7 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500 placeholder-gray-500"
-                  />
-                  {markdownSearchTerm && (
-                    <button
-                      type="button"
-                      onClick={() => setMarkdownSearchTerm('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
+          <div className="p-4 sm:p-6">
+            <div className="flex flex-col lg:grid lg:grid-cols-12 lg:gap-6 items-start">
+              
+              {/* COLUMNA 1 (IZQUIERDA EN DESKTOP): Filtros y Acordeón de Series */}
+              <div className="w-full lg:col-span-6 space-y-4">
+                {/* Panel de Filtros Generales */}
+                <div className="bg-gray-800/80 p-3.5 rounded-xl border border-gray-700 space-y-3 shadow-xs">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Búsqueda por texto */}
+                    <div className="relative flex-1 min-w-[200px]">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar producto, serie o detalle..."
+                        value={markdownSearchTerm}
+                        onChange={(e) => setMarkdownSearchTerm(e.target.value)}
+                        className="w-full bg-gray-900 text-white text-xs pl-8 pr-7 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500 placeholder-gray-500"
+                      />
+                      {markdownSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setMarkdownSearchTerm('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
 
-                {/* Filtro por Categoría */}
-                <div className="flex items-center gap-1.5 min-w-[160px]">
-                  <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Cat:</span>
-                  <select
-                    value={markdownSelectedCategory}
-                    onChange={(e) => setMarkdownSelectedCategory(e.target.value)}
-                    className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500 capitalize"
-                  >
-                    <option value="Todas">Todas las Categorías</option>
-                    {allCategories.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
+                    {/* Filtro por Categoría */}
+                    <div className="flex items-center gap-1.5 min-w-[150px]">
+                      <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Cat:</span>
+                      <select
+                        value={markdownSelectedCategory}
+                        onChange={(e) => setMarkdownSelectedCategory(e.target.value)}
+                        className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500 capitalize"
+                      >
+                        <option value="Todas">Todas las Categorías</option>
+                        {allCategories.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                {/* Agrupar por */}
-                <div className="flex items-center gap-1.5 min-w-[150px]">
-                  <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Agrupar:</span>
-                  <select
-                    value={markdownGroupMode}
-                    onChange={(e) => setMarkdownGroupMode(e.target.value as 'series' | 'category' | 'none')}
-                    className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500"
-                  >
-                    <option value="series">Por Serie</option>
-                    <option value="category">Por Categoría</option>
-                    <option value="none">Sin Grupos (Lista continua)</option>
-                  </select>
-                </div>
+                    {/* Agrupar por */}
+                    <div className="flex items-center gap-1.5 min-w-[140px]">
+                      <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Agrupar:</span>
+                      <select
+                        value={markdownGroupMode}
+                        onChange={(e) => setMarkdownGroupMode(e.target.value as 'series' | 'category' | 'none')}
+                        className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500"
+                      >
+                        <option value="series">Por Serie</option>
+                        <option value="category">Por Categoría</option>
+                        <option value="none">Sin Grupos</option>
+                      </select>
+                    </div>
 
-                {/* Estilo de formato */}
-                <div className="flex items-center gap-1.5 min-w-[150px]">
-                  <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Estilo:</span>
-                  <select
-                    value={markdownBoldStyle}
-                    onChange={(e) => setMarkdownBoldStyle(e.target.value as 'whatsapp' | 'standard')}
-                    className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500"
-                  >
-                    <option value="whatsapp">WhatsApp (*texto*)</option>
-                    <option value="standard">Markdown Estándar (**texto**)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Toggles interactivos */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-700/60">
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Toggle Solo Fotos */}
-                  <button
-                    type="button"
-                    onClick={() => setMarkdownOnlyWithPhotos(!markdownOnlyWithPhotos)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                      markdownOnlyWithPhotos 
-                        ? 'bg-purple-600/90 border-purple-400 text-white shadow-xs' 
-                        : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
-                    }`}
-                  >
-                    <ImageIcon size={13} className={markdownOnlyWithPhotos ? "text-purple-200" : "text-gray-400"} />
-                    <span>Solo Fotos Disponibles</span>
-                  </button>
-
-                  {/* Toggle Solo Stock */}
-                  <button
-                    type="button"
-                    onClick={() => setMarkdownOnlyInStock(!markdownOnlyInStock)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                      markdownOnlyInStock 
-                        ? 'bg-green-600/80 border-green-400 text-white shadow-xs' 
-                        : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
-                    }`}
-                  >
-                    <PackageCheck size={13} className={markdownOnlyInStock ? "text-green-200" : "text-gray-400"} />
-                    <span>Solo con Stock</span>
-                  </button>
-
-                  {/* Toggle Precios */}
-                  <button
-                    type="button"
-                    onClick={() => setMarkdownShowPrices(!markdownShowPrices)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
-                      markdownShowPrices 
-                        ? 'bg-blue-600/80 border-blue-400 text-white shadow-xs' 
-                        : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
-                    }`}
-                  >
-                    <span>{markdownShowPrices ? 'Mostrar Precios' : 'Ocultar Precios'}</span>
-                  </button>
-                </div>
-
-                {/* Reseteo rápido */}
-                {isAnyMarkdownFilterActive && (
-                  <button
-                    type="button"
-                    onClick={handleResetMarkdownFilters}
-                    className="text-xs text-purple-400 hover:text-purple-300 underline font-medium flex items-center gap-1"
-                  >
-                    <RotateCcw size={12} />
-                    Limpiar Filtros
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Panel de Selección Múltiple de Series (imageHint) */}
-            {allAvailableMarkdownHints.length > 0 && (
-              <div className="bg-gray-800/80 p-3.5 rounded-xl border border-gray-700 space-y-3 shadow-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Layers size={16} className="text-purple-400" />
-                    <span className="text-xs font-bold text-gray-200">
-                      Filtrar por Serie (Selección Múltiple)
-                    </span>
-                    <span className="text-[11px] bg-purple-950/80 text-purple-300 border border-purple-800/60 px-2 py-0.5 rounded-full font-semibold">
-                      {markdownSelectedHints.length} de {allAvailableMarkdownHints.length} activas
-                    </span>
+                    {/* Estilo de formato */}
+                    <div className="flex items-center gap-1.5 min-w-[140px]">
+                      <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Estilo:</span>
+                      <select
+                        value={markdownBoldStyle}
+                        onChange={(e) => setMarkdownBoldStyle(e.target.value as 'whatsapp' | 'standard')}
+                        className="w-full bg-gray-900 text-white text-xs py-2 px-2.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500"
+                      >
+                        <option value="whatsapp">WhatsApp (*texto*)</option>
+                        <option value="standard">Markdown (**texto**)</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setMarkdownSelectedHints(allAvailableMarkdownHints)}
-                      className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2.5 py-1 rounded transition-colors font-medium"
-                    >
-                      Todas
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMarkdownSelectedHints([])}
-                      className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2.5 py-1 rounded transition-colors font-medium"
-                    >
-                      Ninguna
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMarkdownSelectedHints(prev => 
-                          allAvailableMarkdownHints.filter(h => !prev.includes(h))
-                        );
-                      }}
-                      className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2.5 py-1 rounded transition-colors font-medium"
-                    >
-                      Invertir
-                    </button>
-                  </div>
-                </div>
-
-                {/* Buscador dentro de las series */}
-                {allAvailableMarkdownHints.length > 6 && (
-                  <div className="relative">
-                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Buscar serie para filtrar..."
-                      value={markdownHintSearchTerm}
-                      onChange={(e) => setMarkdownHintSearchTerm(e.target.value)}
-                      className="w-full bg-gray-900 text-white text-xs pl-8 pr-3 py-1.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500 placeholder-gray-500"
-                    />
-                    {markdownHintSearchTerm && (
+                  {/* Toggles interactivos */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-700/60">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Toggle Solo Fotos */}
                       <button
                         type="button"
-                        onClick={() => setMarkdownHintSearchTerm('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                        onClick={() => setMarkdownOnlyWithPhotos(!markdownOnlyWithPhotos)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                          markdownOnlyWithPhotos 
+                            ? 'bg-purple-600/90 border-purple-400 text-white shadow-xs' 
+                            : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
+                        }`}
                       >
-                        <X size={12} />
+                        <ImageIcon size={13} className={markdownOnlyWithPhotos ? "text-purple-200" : "text-gray-400"} />
+                        <span>Solo Fotos</span>
                       </button>
+
+                      {/* Toggle Solo Stock */}
+                      <button
+                        type="button"
+                        onClick={() => setMarkdownOnlyInStock(!markdownOnlyInStock)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                          markdownOnlyInStock 
+                            ? 'bg-green-600/80 border-green-400 text-white shadow-xs' 
+                            : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        <PackageCheck size={13} className={markdownOnlyInStock ? "text-green-200" : "text-gray-400"} />
+                        <span>Solo con Stock</span>
+                      </button>
+
+                      {/* Toggle Precios */}
+                      <button
+                        type="button"
+                        onClick={() => setMarkdownShowPrices(!markdownShowPrices)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                          markdownShowPrices 
+                            ? 'bg-blue-600/80 border-blue-400 text-white shadow-xs' 
+                            : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
+                        }`}
+                      >
+                        <span>{markdownShowPrices ? 'Mostrar Precios' : 'Ocultar Precios'}</span>
+                      </button>
+                    </div>
+
+                    {/* Reseteo rápido */}
+                    {isAnyMarkdownFilterActive && (
+                      <button
+                        type="button"
+                        onClick={handleResetMarkdownFilters}
+                        className="text-xs text-purple-400 hover:text-purple-300 underline font-medium flex items-center gap-1"
+                      >
+                        <RotateCcw size={12} />
+                        Limpiar Filtros
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Acordeón Plegable de Selección Múltiple de Series (imageHint) */}
+                {allAvailableMarkdownHints.length > 0 && (
+                  <div className={`bg-gray-800/80 rounded-xl border transition-all duration-200 shadow-xs ${
+                    markdownSelectedHints.length === 0 ? 'border-amber-500/60' : 'border-gray-700'
+                  }`}>
+                    {/* Cabecera del Acordeón interactiva */}
+                    <div 
+                      onClick={() => setIsMarkdownSeriesExpanded(!isMarkdownSeriesExpanded)}
+                      className="p-3.5 flex flex-wrap items-center justify-between gap-2.5 cursor-pointer select-none hover:bg-gray-750/50 rounded-xl transition-colors"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setIsMarkdownSeriesExpanded(!isMarkdownSeriesExpanded);
+                        }
+                      }}
+                      title={isMarkdownSeriesExpanded ? "Hacer clic para contraer series" : "Hacer clic para desplegar series"}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <ChevronDown 
+                            size={16} 
+                            className={`text-purple-400 transform transition-transform duration-200 ${
+                              isMarkdownSeriesExpanded ? 'rotate-180' : ''
+                            }`} 
+                          />
+                          <Layers size={16} className="text-purple-400" />
+                          <span className="text-xs font-bold text-gray-200">
+                            Filtrar por Serie (Selección Múltiple)
+                          </span>
+                        </div>
+
+                        {/* Alerta de Estado Vacío en la Cabecera */}
+                        {markdownSelectedHints.length === 0 ? (
+                          <span className="text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/50 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse shadow-xs">
+                            <AlertTriangle size={12} className="text-amber-400 flex-shrink-0" />
+                            <span>⚠️ 0 series seleccionadas (0 productos)</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] bg-purple-950/80 text-purple-300 border border-purple-800/60 px-2 py-0.5 rounded-full font-semibold">
+                            {markdownSelectedHints.length} de {allAvailableMarkdownHints.length} activas
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Botones de acción rápida: stopPropagation evita alternar el acordeón */}
+                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={handleSelectAllHints}
+                          className="text-xs bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-200 px-2.5 py-1 rounded transition-colors font-medium hover:text-white"
+                          title="Seleccionar todas las series"
+                        >
+                          Todas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllHints}
+                          className="text-xs bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-200 px-2.5 py-1 rounded transition-colors font-medium hover:text-white"
+                          title="Deseleccionar todas las series"
+                        >
+                          Ninguna
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleInvertHints}
+                          className="text-xs bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-200 px-2.5 py-1 rounded transition-colors font-medium hover:text-white"
+                          title="Invertir selección actual"
+                        >
+                          Invertir
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Resumen sutil cuando el acordeón está contraído */}
+                    {!isMarkdownSeriesExpanded && (
+                      <div className="px-3.5 pb-3 pt-0 border-t border-gray-700/40 text-xs">
+                        {markdownSelectedHints.length === 0 ? (
+                          <div className="flex items-center justify-between gap-2 text-amber-300/90 font-medium bg-amber-950/30 p-2 rounded-lg border border-amber-900/50 mt-1">
+                            <div className="flex items-center gap-1.5">
+                              <AlertTriangle size={13} className="text-amber-400 flex-shrink-0" />
+                              <span>Atención: Al no haber series marcadas, el archivo Markdown estará vacío.</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleSelectAllHints}
+                              className="text-[11px] underline font-bold text-amber-200 hover:text-white whitespace-nowrap"
+                            >
+                              Activar todas
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between text-gray-400 pt-1">
+                            <span>
+                              {markdownSelectedHints.length === allAvailableMarkdownHints.length 
+                                ? 'Incluyendo todas las series disponibles.' 
+                                : `Incluyendo ${markdownSelectedHints.length} series personalizadas.`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setIsMarkdownSeriesExpanded(true)}
+                              className="text-purple-400 hover:text-purple-300 underline font-medium text-[11px]"
+                            >
+                              Desplegar para editar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Cuerpo desplegado del acordeón */}
+                    {isMarkdownSeriesExpanded && (
+                      <div className="px-3.5 pb-3.5 pt-0 space-y-2.5 border-t border-gray-700/50">
+                        {/* Buscador dentro de las series */}
+                        {allAvailableMarkdownHints.length > 6 && (
+                          <div className="relative pt-2">
+                            <Search size={13} className="absolute left-2.5 top-[calc(50%+4px)] -translate-y-1/2 text-gray-400" />
+                            <input
+                              type="text"
+                              placeholder="Buscar serie para filtrar..."
+                              value={markdownHintSearchTerm}
+                              onChange={(e) => setMarkdownHintSearchTerm(e.target.value)}
+                              className="w-full bg-gray-900 text-white text-xs pl-8 pr-3 py-1.5 rounded-lg border border-gray-700 focus:outline-none focus:border-purple-500 placeholder-gray-500"
+                            />
+                            {markdownHintSearchTerm && (
+                              <button
+                                type="button"
+                                onClick={() => setMarkdownHintSearchTerm('')}
+                                className="absolute right-2 top-[calc(50%+4px)] -translate-y-1/2 text-gray-400 hover:text-white"
+                              >
+                                <X size={12} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Cuadrícula de Series con Selección Múltiple */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                          {filteredHintsForSelection.map(({ hint, count }) => {
+                            const isSelected = markdownSelectedHints.includes(hint);
+                            return (
+                              <button
+                                type="button"
+                                key={hint}
+                                onClick={() => {
+                                  setMarkdownSelectedHints(prev =>
+                                    isSelected ? prev.filter(h => h !== hint) : [...prev, hint]
+                                  );
+                                }}
+                                className={`flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left transition-all border ${
+                                  isSelected
+                                    ? 'bg-purple-900/40 border-purple-500/70 text-purple-200 shadow-2xs'
+                                    : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <span className={`w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0 text-[10px] ${
+                                    isSelected ? 'bg-purple-600 text-white font-bold' : 'border border-gray-600'
+                                  }`}>
+                                    {isSelected ? '✓' : ''}
+                                  </span>
+                                  <span className="truncate">{hint}</span>
+                                </div>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium ${
+                                  isSelected ? 'bg-purple-800/80 text-purple-200' : 'bg-gray-800 text-gray-500'
+                                }`}>
+                                  {count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
 
-                {/* Cuadrícula de Series con Selección Múltiple */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 max-h-44 overflow-y-auto pr-1">
-                  {filteredHintsForSelection.map(({ hint, count }) => {
-                    const isSelected = markdownSelectedHints.includes(hint);
-                    return (
-                      <button
-                        type="button"
-                        key={hint}
-                        onClick={() => {
-                          setMarkdownSelectedHints(prev =>
-                            isSelected ? prev.filter(h => h !== hint) : [...prev, hint]
-                          );
-                        }}
-                        className={`flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-left transition-all border ${
-                          isSelected
-                            ? 'bg-purple-900/40 border-purple-500/70 text-purple-200 shadow-2xs'
-                            : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                        }`}
+                <p className="text-xs text-gray-400 hidden lg:block">
+                  {markdownBoldStyle === 'whatsapp' 
+                    ? 'Formato optimizado para WhatsApp (*negrita* en series y precios).' 
+                    : 'Formato estándar Markdown (**negrita** en series y precios).'}
+                </p>
+              </div>
+
+              {/* COLUMNA 2 (DERECHA EN DESKTOP): Estadísticas y Previsualización en Vivo */}
+              <div className="w-full lg:col-span-6 flex flex-col space-y-3 mt-4 lg:mt-0">
+                {/* Barra de Estadísticas y Acciones */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-800/90 p-3 rounded-xl border border-gray-700 shadow-xs">
+                  <div className="flex items-center gap-2 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-700 text-xs">
+                    <span className="font-semibold text-purple-300">{filteredProducts.length} productos</span>
+                    <span className="text-gray-600">•</span>
+                    <span className="text-cyan-300 font-medium">{content.length} caracteres</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadMarkdown}
+                      disabled={filteredProducts.length === 0}
+                      className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-200 font-semibold py-2 px-3 rounded-lg text-xs transition-colors border border-gray-600"
+                    >
+                      <Download size={14} />
+                      <span>Descargar .md</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopy}
+                      disabled={filteredProducts.length === 0}
+                      className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 font-bold py-2 px-3.5 rounded-lg text-xs transition-all shadow-md ${
+                        copied 
+                          ? 'bg-green-600 text-white' 
+                          : 'bg-brand-blue hover:bg-blue-600 disabled:opacity-40 text-white hover:scale-[1.02]'
+                      }`}
+                    >
+                      {copied ? <Check size={14} /> : <Copy size={14} />}
+                      <span>{copied ? '¡Copiado!' : 'Copiar Markdown'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Previsualización del Contenido */}
+                <div className="relative flex-1">
+                  {filteredProducts.length === 0 ? (
+                    <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-8 text-center space-y-2.5">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+                        <AlertTriangle size={20} />
+                      </div>
+                      <p className="text-gray-200 font-semibold text-sm">No hay productos que coincidan con los filtros seleccionados.</p>
+                      <p className="text-gray-400 text-xs max-w-md mx-auto">
+                        {markdownSelectedHints.length === 0 
+                          ? 'La lista de series está vacía. Activa al menos una serie o presiona "Todas".'
+                          : 'Prueba seleccionando más series o ajustando los filtros de fotos, stock o categoría.'}
+                      </p>
+                      <div className="pt-2 flex items-center justify-center gap-3">
+                        {markdownSelectedHints.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={handleSelectAllHints}
+                            className="text-xs bg-purple-600 hover:bg-purple-500 text-white font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+                          >
+                            Seleccionar Todas las Series
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleResetMarkdownFilters}
+                          className="text-xs text-purple-400 hover:text-purple-300 font-semibold underline py-1.5"
+                        >
+                          Restablecer todos los filtros
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative group">
+                      <pre className="bg-gray-950 text-gray-200 text-xs p-4 rounded-xl overflow-auto max-h-72 lg:max-h-[460px] border border-gray-700/80 font-mono leading-relaxed select-all">
+                        <code>{content}</code>
+                      </pre>
+                      <button 
+                        onClick={handleCopy}
+                        className="absolute top-2.5 right-2.5 p-1.5 bg-gray-800/90 hover:bg-gray-700 text-gray-300 hover:text-white rounded-md border border-gray-600 shadow-sm transition-all"
+                        title="Copiar contenido"
                       >
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className={`w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0 text-[10px] ${
-                            isSelected ? 'bg-purple-600 text-white font-bold' : 'border border-gray-600'
-                          }`}>
-                            {isSelected ? '✓' : ''}
-                          </span>
-                          <span className="truncate">{hint}</span>
-                        </div>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium ${
-                          isSelected ? 'bg-purple-800/80 text-purple-200' : 'bg-gray-800 text-gray-500'
-                        }`}>
-                          {count}
-                        </span>
+                        {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                       </button>
-                    );
-                  })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
 
-            {/* Barra de Estadísticas y Acciones */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-800/90 p-3 rounded-xl border border-gray-700 shadow-xs">
-              <div className="flex items-center gap-2 bg-gray-900/80 px-3 py-1.5 rounded-lg border border-gray-700 text-xs">
-                <span className="font-semibold text-purple-300">{filteredProducts.length} productos</span>
-                <span className="text-gray-600">•</span>
-                <span className="text-cyan-300 font-medium">{content.length} caracteres</span>
+                <p className="text-xs text-gray-400 lg:hidden">
+                  {markdownBoldStyle === 'whatsapp' 
+                    ? 'Formato optimizado para WhatsApp (*negrita* en series y precios).' 
+                    : 'Formato estándar Markdown (**negrita** en series y precios).'}
+                </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleDownloadMarkdown}
-                  disabled={filteredProducts.length === 0}
-                  className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-200 font-semibold py-2 px-3.5 rounded-lg text-xs transition-colors border border-gray-600"
-                >
-                  <Download size={14} />
-                  <span>Descargar .md</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  disabled={filteredProducts.length === 0}
-                  className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 font-bold py-2 px-4 rounded-lg text-xs transition-all shadow-md ${
-                    copied 
-                      ? 'bg-green-600 text-white' 
-                      : 'bg-brand-blue hover:bg-blue-600 disabled:opacity-40 text-white hover:scale-[1.02]'
-                  }`}
-                >
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                  <span>{copied ? '¡Copiado al Portapapeles!' : 'Copiar Markdown'}</span>
-                </button>
-              </div>
             </div>
-
-            {/* Previsualización del Contenido */}
-            <div className="relative">
-              {filteredProducts.length === 0 ? (
-                <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-8 text-center space-y-2">
-                  <p className="text-gray-300 font-medium text-sm">No hay productos que coincidan con los filtros seleccionados.</p>
-                  <p className="text-gray-500 text-xs">Prueba seleccionando más series o ajustando los filtros de fotos, stock o categoría.</p>
-                  <button
-                    type="button"
-                    onClick={handleResetMarkdownFilters}
-                    className="mt-2 text-xs text-purple-400 hover:text-purple-300 font-semibold underline"
-                  >
-                    Restablecer filtros
-                  </button>
-                </div>
-              ) : (
-                <div className="relative group">
-                  <pre className="bg-gray-950 text-gray-200 text-xs p-4 rounded-xl overflow-auto max-h-72 border border-gray-700/80 font-mono leading-relaxed select-all">
-                    <code>{content}</code>
-                  </pre>
-                  <button 
-                    onClick={handleCopy}
-                    className="absolute top-2.5 right-2.5 p-1.5 bg-gray-800/90 hover:bg-gray-700 text-gray-300 hover:text-white rounded-md border border-gray-600 shadow-sm transition-all"
-                    title="Copiar contenido"
-                  >
-                    {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <p className="text-xs text-gray-400">
-              {markdownBoldStyle === 'whatsapp' 
-                ? 'Formato optimizado para WhatsApp (*negrita* en series y precios).' 
-                : 'Formato estándar Markdown (**negrita** en series y precios).'}
-            </p>
           </div>
         );
 
@@ -984,7 +1133,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
       isOpen={isOpen} 
       onClose={onClose} 
       title={titles[format]} 
-      size={format === 'catalog' ? 'full' : format === 'markdown' ? 'xl' : 'lg'}
+      size={format === 'catalog' ? 'full' : format === 'markdown' ? '2xl' : 'lg'}
     >
       {renderContent()}
     </Modal>
