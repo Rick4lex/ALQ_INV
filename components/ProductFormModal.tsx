@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Product, Variant } from '../types';
 import Modal from './Modal';
 import { createEmptyProduct, EMPTY_VARIANT } from '../constants';
-import { ImageOff, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ImageOff, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Link as LinkIcon, Check } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 
 interface ProductFormModalProps {
@@ -16,6 +16,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, pr
   const [product, setProduct] = useState<Omit<Product, 'id'> & { id?: string }>(createEmptyProduct());
   const [imgError, setImgError] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isUrlDropdownOpen, setIsUrlDropdownOpen] = useState(false);
   const touchStartX = useRef(0);
 
   useEffect(() => {
@@ -32,6 +33,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, pr
     }
     setImgError(false);
     setCurrentImageIndex(0);
+    setIsUrlDropdownOpen(false);
   }, [productToEdit, isOpen, allCategories]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -179,19 +181,134 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, pr
                     <div className="text-gray-500 flex flex-col items-center"><ImageOff size={40} /><span>Vista Previa</span></div>
                 )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">URLs de Imagen</label>
-              <div className="overflow-x-auto pb-2 -mx-1 px-1">
-                <div className="flex space-x-2">
+            {/* Gestión desplegable de URLs de Imagen */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setIsUrlDropdownOpen(prev => !prev)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-sm font-medium transition-all ${
+                  isUrlDropdownOpen
+                    ? 'bg-purple-900/40 border-purple-500/70 text-purple-200 shadow-md shadow-purple-500/10'
+                    : 'bg-gray-800/90 hover:bg-gray-750 border-gray-700 text-gray-200 hover:border-gray-600'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <LinkIcon size={16} className={isUrlDropdownOpen ? 'text-purple-400 flex-shrink-0' : 'text-gray-400 flex-shrink-0'} />
+                  <span className="truncate">URLs de Imagen</span>
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-purple-500/20 text-purple-300 font-semibold border border-purple-500/30 flex-shrink-0">
+                    {cleanImageUrls.length} {cleanImageUrls.length === 1 ? 'enlace' : 'enlaces'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-gray-400 flex-shrink-0 text-xs">
+                  <span>{isUrlDropdownOpen ? 'Cerrar' : 'Editar'}</span>
+                  {isUrlDropdownOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </div>
+              </button>
+
+              {/* Tira rápida de miniaturas cuando está contraído */}
+              {!isUrlDropdownOpen && cleanImageUrls.length > 1 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5">
+                  {cleanImageUrls.map((url, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setImgError(false);
+                        setCurrentImageIndex(idx);
+                      }}
+                      className={`relative w-8 h-8 rounded border overflow-hidden flex-shrink-0 transition-transform ${
+                        idx === currentImageIndex
+                          ? 'border-purple-400 ring-2 ring-purple-500/40 scale-105'
+                          : 'border-gray-700 opacity-60 hover:opacity-100'
+                      }`}
+                      title={`Ver foto ${idx + 1}`}
+                    >
+                      <img src={url} alt={`Miniatura ${idx + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Panel Desplegable de URLs */}
+              {isUrlDropdownOpen && (
+                <div className="p-3 bg-gray-800/95 border border-gray-700 rounded-lg shadow-xl space-y-2.5">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-gray-700/60">
+                    <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                      Gestionar Enlaces ({product.imageUrls.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsUrlDropdownOpen(false)}
+                      className="text-xs text-purple-400 hover:text-purple-300 font-medium flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-purple-500/10"
+                    >
+                      <Check size={13} />
+                      Listo
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                     {product.imageUrls.map((url, index) => (
-                      <div key={index} className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-                        <input type="text" value={url} onChange={(e) => handleImageUrlChange(index, e.target.value)} placeholder={`URL ${index + 1}`} className="block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm" />
-                        <button type="button" onClick={() => removeImageUrlInput(index)} disabled={product.imageUrls.length <= 1} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50" aria-label="Eliminar URL"><Trash2 size={18} /></button>
+                      <div key={index} className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded border border-gray-600 bg-gray-900 flex-shrink-0 overflow-hidden flex items-center justify-center">
+                          {url.trim() ? (
+                            <img
+                              src={url}
+                              alt={`Miniatura ${index + 1}`}
+                              className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => {
+                                setImgError(false);
+                                const foundIdx = cleanImageUrls.indexOf(url);
+                                if (foundIdx !== -1) setCurrentImageIndex(foundIdx);
+                              }}
+                              title="Clic para previsualizar arriba"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span className="text-gray-500 text-[10px]">#{index + 1}</span>
+                          )}
+                        </div>
+                        <input
+                          type="url"
+                          value={url}
+                          onChange={(e) => handleImageUrlChange(index, e.target.value)}
+                          placeholder="https://ejemplo.com/imagen.jpg"
+                          className="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded-md shadow-sm py-1.5 px-2.5 text-xs text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImageUrlInput(index)}
+                          disabled={product.imageUrls.length <= 1}
+                          className="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-40 disabled:hover:bg-transparent flex-shrink-0"
+                          title="Eliminar esta URL"
+                          aria-label="Eliminar URL"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="pt-1 border-t border-gray-700/60 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={addImageUrlInput}
+                      className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 font-medium py-1 px-2 rounded hover:bg-purple-500/10 transition-colors"
+                    >
+                      <Plus size={14} />
+                      Añadir otra URL
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsUrlDropdownOpen(false)}
+                      className="text-xs text-gray-400 hover:text-gray-300 py-1 px-2"
+                    >
+                      Ocultar
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <button type="button" onClick={addImageUrlInput} className="mt-2 flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300"><Plus size={16} />Añadir otra URL</button>
+              )}
             </div>
           </div>
           <div className="lg:col-span-2 space-y-4">
