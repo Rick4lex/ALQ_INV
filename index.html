@@ -70,7 +70,12 @@
           display: none !important;
         }
 
-        /* Desactivar posicionamiento fijo y desbordamientos en modal al imprimir */
+        /* Al imprimir, ocultar todo el árbol de la aplicación que no sea el catálogo */
+        body > *:not(#catalog-print-root) {
+          display: none !important;
+        }
+
+        /* Si el modal está abierto en el flujo normal, ocultar los fondos y modales no-imprimibles */
         .fixed, .overflow-y-auto, .overflow-auto, [role="dialog"] {
           position: static !important;
           overflow: visible !important;
@@ -82,14 +87,14 @@
           backdrop-filter: none !important;
         }
 
-        /* Ocultar elementos de la interfaz general al imprimir */
-        body * {
-          visibility: hidden;
+        /* Ocultar elementos de UI cuando no esté dentro del catálogo imprimible */
+        header, nav, aside, footer:not(.catalog-page footer), form {
+          display: none !important;
         }
-        
-        /* Hacer visible exclusivamente el área del catálogo */
-        #catalog-to-print, #catalog-to-print * {
-          visibility: visible;
+
+        /* En caso de que se imprima directamente desde el modal */
+        body > #root > *:not([role="dialog"]) {
+          display: none !important;
         }
         
         #catalog-to-print {
@@ -101,15 +106,16 @@
           box-shadow: none !important;
           border: none !important;
           background: transparent !important;
+          display: block !important;
         }
 
-        /* Hojas físicas A4 calibradas milimétricamente (Fase 3) */
+        /* Hojas físicas A4 calibradas milimétricamente */
         .catalog-page {
           box-sizing: border-box !important;
           width: 100% !important;
-          min-height: 270mm !important;
+          min-height: 265mm !important;
           max-height: 275mm !important;
-          height: 272mm !important;
+          height: 270mm !important;
           display: flex !important;
           flex-direction: column !important;
           justify-content: space-between !important;
@@ -211,7 +217,7 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="/ALQ_INV/assets/index-B2hY1XkK.js"></script>
+  <script type="module" crossorigin src="/assets/index-Ie-lz6Sk.js"></script>
 </head>
 <body class="bg-gray-900 text-white">
     <div id="root"></div>
