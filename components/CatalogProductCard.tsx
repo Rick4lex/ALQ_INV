@@ -5,7 +5,7 @@ import { Package, Sparkles } from 'lucide-react';
 
 interface CatalogProductCardProps {
   product: Product;
-  compact?: boolean;
+  compact?: boolean; // compact === true cuando pageSize === 9
   showPrice?: boolean;
 }
 
@@ -22,10 +22,19 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
   const totalStock = product.variants ? product.variants.reduce((sum, v) => sum + (v.stock || 0), 0) : 0;
   const variantCount = product.variants ? product.variants.length : 1;
 
+  // Para 6 productos (compact = false):
+  // Si tiene foto válida: aspecto vertical marcado 3:4 con altura generosa (h-64 sm:h-72 o aspect-[3/4] max-h-72) destacando el producto
+  // Si no tiene foto: aspecto compacto similar al diseño de 9 productos (h-28 o h-32) para que ocupe menos espacio
+  const imageContainerClass = compact
+    ? 'h-32'
+    : hasValidImage
+      ? 'aspect-[3/4] max-h-72 min-h-[220px]'
+      : 'h-28 sm:h-32';
+
   return (
-    <article className="border border-gray-200/90 rounded-lg overflow-hidden flex flex-col justify-between bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md transition-shadow">
+    <article className="border border-gray-200/90 rounded-lg overflow-hidden flex flex-col justify-between bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md transition-shadow h-full">
       {/* Contenedor de Imagen o Fallback */}
-      <div className={`w-full ${compact ? 'h-32' : 'h-38'} relative bg-gradient-to-br from-gray-50 via-purple-50/20 to-gray-100 flex items-center justify-center overflow-hidden border-b border-gray-100`}>
+      <div className={`w-full ${imageContainerClass} relative bg-gradient-to-br from-gray-50 via-purple-50/20 to-gray-100 flex items-center justify-center overflow-hidden border-b border-gray-100 shrink-0`}>
         {hasValidImage ? (
           <img 
             src={rawImage} 
@@ -62,7 +71,7 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
       </div>
 
       {/* Contenido descriptivo */}
-      <div className="p-3 flex flex-col flex-grow justify-between">
+      <div className={`${compact ? 'p-2 sm:p-2.5' : 'p-2.5 sm:p-3'} flex flex-col flex-grow justify-between`}>
         <div>
           <div className="flex items-center justify-between gap-1 mb-0.5">
             <span className="text-[10px] text-purple-700 font-bold uppercase tracking-wider">
@@ -79,14 +88,17 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
             {product.title}
           </h3>
 
-          <p className="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-relaxed">
-            {product.details || product.description || 'Bloque de construcción de 4,5 cm. Plástico ABS de alta calidad.'}
-          </p>
+          {/* Solo incluir la descripción en el diseño compacto (9 productos), omitir en el de 6 productos */}
+          {compact && (
+            <p className="text-[10px] sm:text-[11px] text-gray-500 mt-1 line-clamp-2 leading-relaxed">
+              {product.details || product.description || 'Bloque de construcción de 4,5 cm. Plástico ABS de alta calidad.'}
+            </p>
+          )}
         </div>
 
         {/* Sección de Precio */}
         {showPrice && (
-          <div className="mt-2.5 pt-2 border-t border-gray-100 flex items-center justify-between">
+          <div className={`${compact ? 'mt-1.5 pt-1.5' : 'mt-2 pt-2'} border-t border-gray-100 flex items-center justify-between`}>
             <span className="text-[11px] text-gray-400 font-medium">Precio:</span>
             <span className="text-sm font-bold text-green-700">
               {formatPrice(product, { onlyAvailable: true })}
