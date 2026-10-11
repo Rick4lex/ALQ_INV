@@ -74,7 +74,7 @@ const App: React.FC = () => {
       const matchesSearch = (product.title || '').toLowerCase().includes(preferences.searchTerm.toLowerCase());
       const matchesCategory = preferences.selectedCategory === 'Todas' || product.category === preferences.selectedCategory;
       const matchesAvailability = !preferences.showAvailableOnly || product.variants.some(v => v.stock > 0);
-      const matchesTags = selectedTags.length === 0 || selectedTags.every(tag => (product.imageHint || []).includes(tag));
+      const matchesTags = selectedTags.length === 0 || (product.imageHint || []).some(tag => selectedTags.includes(tag));
 
       // Filtro por foto disponible (Tri-estado)
       let matchesPhoto = true;

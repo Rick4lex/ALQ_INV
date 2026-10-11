@@ -141,15 +141,30 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
               <ChevronDown size={18} className={`transition-transform text-gray-400 flex-shrink-0 ${tagsDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
           {tagsDropdownOpen && (
-            <div className="absolute top-full mt-2 w-full bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-20 p-2">
-              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                {allTags.map(tag => (
-                  <label key={tag} className="flex items-center gap-2 p-2 rounded hover:bg-gray-700 cursor-pointer text-sm">
-                    <input type="checkbox" checked={selectedTags.includes(tag)} onChange={() => handleTagToggle(tag)} className="form-checkbox h-4 w-4 rounded bg-gray-900 border-gray-600 text-purple-500 focus:ring-purple-600" />
-                    <span className="truncate">{tag}</span>
-                  </label>
-                ))}
+            <div className="absolute top-full mt-2 w-full sm:w-64 left-0 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-20 p-2">
+              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-700 text-xs">
+                <span className="text-gray-400 font-medium">Series / Hints</span>
+                {selectedTags.length > 0 && (
+                  <button
+                    onClick={() => setSelectedTags([])}
+                    className="text-purple-400 hover:text-purple-300 font-semibold"
+                  >
+                    Limpiar ({selectedTags.length})
+                  </button>
+                )}
               </div>
+              {allTags.length === 0 ? (
+                <p className="text-xs text-gray-400 p-2 text-center">No hay series registradas</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {allTags.map(tag => (
+                    <label key={tag} className="flex items-center gap-2 p-2 rounded hover:bg-gray-700 cursor-pointer text-sm">
+                      <input type="checkbox" checked={selectedTags.includes(tag)} onChange={() => handleTagToggle(tag)} className="form-checkbox h-4 w-4 rounded bg-gray-900 border-gray-600 text-purple-500 focus:ring-purple-600" />
+                      <span className="truncate">{tag}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
