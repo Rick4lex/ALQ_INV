@@ -61,42 +61,41 @@
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
+          color: #111827 !important;
           width: 100% !important;
           height: auto !important;
           overflow: visible !important;
         }
 
-        .no-print {
+        /* Ocultar elementos no imprimibles */
+        .no-print,
+        .print\:hidden,
+        [role="dialog"] > header,
+        body > #root > div > div:first-child,
+        body > #root > div > footer {
           display: none !important;
         }
 
-        /* Al imprimir, ocultar todo el árbol de la aplicación que no sea el catálogo */
-        body > *:not(#catalog-print-root) {
-          display: none !important;
-        }
-
-        /* Si el modal está abierto en el flujo normal, ocultar los fondos y modales no-imprimibles */
-        .fixed, .overflow-y-auto, .overflow-auto, [role="dialog"] {
+        /* Resetear contenedores del modal para que no generen cajas ni scroll */
+        .modal-overlay,
+        .modal-container,
+        .modal-body,
+        .fixed,
+        [role="dialog"] {
           position: static !important;
-          overflow: visible !important;
-          max-height: none !important;
+          inset: auto !important;
+          width: 100% !important;
           height: auto !important;
+          max-height: none !important;
+          overflow: visible !important;
           background: transparent !important;
           box-shadow: none !important;
           border: none !important;
+          padding: 0 !important;
+          margin: 0 !important;
           backdrop-filter: none !important;
         }
 
-        /* Ocultar elementos de UI cuando no esté dentro del catálogo imprimible */
-        header, nav, aside, footer:not(.catalog-page footer), form {
-          display: none !important;
-        }
-
-        /* En caso de que se imprima directamente desde el modal */
-        body > #root > *:not([role="dialog"]) {
-          display: none !important;
-        }
-        
         #catalog-to-print {
           position: static !important;
           width: 100% !important;

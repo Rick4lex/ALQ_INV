@@ -23,16 +23,16 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
   const variantCount = product.variants ? product.variants.length : 1;
 
   // Para 6 productos (compact = false):
-  // Si tiene foto válida: aspecto vertical marcado 3:4 con altura generosa (h-64 sm:h-72 o aspect-[3/4] max-h-72) destacando el producto
-  // Si no tiene foto: aspecto compacto similar al diseño de 9 productos (h-28 o h-32) para que ocupe menos espacio
+  // Si tiene foto válida: aspecto vertical marcado 3:4 con mayor altura destacando más el producto en foto
+  // Si no tiene foto: aspecto compacto igual al diseño de 9 productos (h-32) para ocupar menos espacio
   const imageContainerClass = compact
     ? 'h-32'
     : hasValidImage
-      ? 'aspect-[3/4] max-h-72 min-h-[220px]'
-      : 'h-28 sm:h-32';
+      ? 'w-full aspect-[3/4] min-h-[250px] sm:min-h-[280px] max-h-[340px]'
+      : 'h-32';
 
   return (
-    <article className="border border-gray-200/90 rounded-lg overflow-hidden flex flex-col justify-between bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md transition-shadow h-full">
+    <article className={`border border-gray-200/90 rounded-lg overflow-hidden flex flex-col justify-between bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md transition-shadow h-full ${!compact && hasValidImage ? 'min-h-[340px] sm:min-h-[370px]' : ''}`}>
       {/* Contenedor de Imagen o Fallback */}
       <div className={`w-full ${imageContainerClass} relative bg-gradient-to-br from-gray-50 via-purple-50/20 to-gray-100 flex items-center justify-center overflow-hidden border-b border-gray-100 shrink-0`}>
         {hasValidImage ? (

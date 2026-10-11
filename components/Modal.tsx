@@ -31,18 +31,20 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
   }`;
 
   return (
-    <div className={wrapperClasses} onClick={onClose}>
+    <div className={`modal-overlay ${wrapperClasses}`} onClick={onClose}>
       <div
-        className={modalContainerClasses}
+        role="dialog"
+        aria-modal="true"
+        className={`modal-container ${modalContainerClasses}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+        <header className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0 no-print print:hidden">
           <h2 className="text-xl font-bold">{title}</h2>
           <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-700 hover:text-white transition-colors">
             <X size={24} />
           </button>
         </header>
-        <div className="overflow-y-auto flex-grow">
+        <div className="overflow-y-auto flex-grow modal-body">
           {children}
         </div>
       </div>

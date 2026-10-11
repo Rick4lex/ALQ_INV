@@ -160,7 +160,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
-      <div className={currentView === 'catalog' ? "pb-40 md:pb-24" : ""}>
+      <div className={`no-print print:hidden ${currentView === 'catalog' ? "pb-40 md:pb-24" : ""}`}>
         {currentView === 'catalog' && <Header />}
         <main>
            {currentView === 'catalog' ? (
@@ -176,8 +176,16 @@ const App: React.FC = () => {
            )}
         </main>
       </div>
-      {currentView === 'catalog' && !fusionMode && !isSelectionMode && <Footer />}
-      {currentView === 'catalog' && isSelectionMode && <BulkActionBar />}
+      {currentView === 'catalog' && !fusionMode && !isSelectionMode && (
+        <div className="no-print print:hidden">
+          <Footer />
+        </div>
+      )}
+      {currentView === 'catalog' && isSelectionMode && (
+        <div className="no-print print:hidden">
+          <BulkActionBar />
+        </div>
+      )}
       <Suspense fallback={
         <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="text-white text-lg animate-pulse">Cargando Módulo...</div>
