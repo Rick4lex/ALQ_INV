@@ -50,13 +50,13 @@ export const productPhotoPriorityComparator = (a: Product, b: Product): number =
   return productSortComparator(a, b);
 };
 
-export const formatVariantPrice = (variant: Variant, options: { markdown?: boolean } = {}): string => {
-  const { markdown = false } = options;
+export const formatVariantPrice = (variant: Variant, options: { markdown?: boolean; includePerItem?: boolean } = {}): string => {
+  const { markdown = false, includePerItem = false } = options;
   if (typeof variant.price !== 'number' || variant.price <= 0) return '';
 
   let priceDisplay = formatCurrency(variant.price);
   
-  if (variant.itemCount && variant.itemCount > 1) {
+  if (includePerItem && variant.itemCount && variant.itemCount > 1) {
     const perItemPrice = Math.round(variant.price / variant.itemCount);
     priceDisplay += ` (${formatCurrency(perItemPrice)} c/u)`;
   }
