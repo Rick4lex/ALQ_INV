@@ -64,10 +64,52 @@ export const formatVariantPrice = (variant: Variant, options: { markdown?: boole
   return markdown ? `*${priceDisplay}*` : priceDisplay;
 };
 
+export interface ProductPriceInfo {
+  price: number;
+  formatted: string;
+  isOutOfStock: boolean;
+  hasPricedVariants: boolean;
+}
+
+export const getProductPriceInfo = (product: Product): ProductPriceInfo => {
+  const pricedVariants = (product.variants || []).filter(
+    v => typeof v.price === 'number' && v.price > 0
+  );
+
+  if (pricedVariants.length === 0) {
+    return {
+      price: 0,
+      formatted: 'N/A',
+      isOutOfStock: false,
+      hasPricedVariants: false,
+    };
+  }
+
+  const inStockVariants = pricedVariants.filter(v => v.stock > 0);
+
+  if (inStockVariants.length > 0) {
+    const highestPrice = Math.max(...inStockVariants.map(v => v.price!));
+    return {
+      price: highestPrice,
+      formatted: formatCurrency(highestPrice),
+      isOutOfStock: false,
+      hasPricedVariants: true,
+    };
+  }
+
+  const highestPrice = Math.max(...pricedVariants.map(v => v.price!));
+  return {
+    price: highestPrice,
+    formatted: formatCurrency(highestPrice),
+    isOutOfStock: true,
+    hasPricedVariants: true,
+  };
+};
+
 export const formatPrice = (product: Product, options: { markdown?: boolean; onlyAvailable?: boolean } = {}): string => {
   const { markdown = false, onlyAvailable = false } = options;
 
-  let variantsToConsider = product.variants.filter(v => typeof v.price === 'number' && v.price > 0);
+  let variantsToConsider = (product.variants || []).filter(v => typeof v.price === 'number' && v.price > 0);
   if (onlyAvailable) {
     variantsToConsider = variantsToConsider.filter(v => v.stock > 0);
   }
@@ -76,15 +118,21 @@ export const formatPrice = (product: Product, options: { markdown?: boolean; onl
     return onlyAvailable ? "Consultar" : "N/A";
   }
 
-  if (variantsToConsider.length === 1) {
-    return formatVariantPrice(variantsToConsider[0], { markdown });
-  }
-
+  // Eliminar prefijo Desde y mostrar directamente el valor mayor
   const prices = variantsToConsider.map(v => v.price!);
-  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
   
-  const priceDisplay = `Desde ${formatCurrency(minPrice)}`;
+  const priceDisplay = formatCurrency(maxPrice);
   return markdown ? `*${priceDisplay}*` : priceDisplay;
+};
+
+export const getPricedVariants = (product: Product, options: { onlyAvailable?: boolean } = {}): Variant[] => {
+  const { onlyAvailable = false } = options;
+  let variantsToConsider = (product.variants || []).filter(v => typeof v.price === 'number' && v.price > 0);
+  if (onlyAvailable) {
+    variantsToConsider = variantsToConsider.filter(v => v.stock > 0);
+  }
+  return [...variantsToConsider].sort((a, b) => (a.price || 0) - (b.price || 0));
 };
 
 

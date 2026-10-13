@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Product } from '../types';
-import { formatPrice } from '../utils';
+import { formatPrice, formatCurrency, getPricedVariants } from '../utils';
 import { Package, Sparkles } from 'lucide-react';
 
 interface CatalogProductCardProps {
@@ -21,6 +21,7 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
   const primaryHint = product.imageHint && product.imageHint.length > 0 ? product.imageHint[0] : null;
   const totalStock = product.variants ? product.variants.reduce((sum, v) => sum + (v.stock || 0), 0) : 0;
   const variantCount = product.variants ? product.variants.length : 1;
+  const pricedVariants = useMemo(() => getPricedVariants(product, { onlyAvailable: true }), [product]);
 
   // Para 6 productos (compact = false):
   // Si tiene foto válida: aspecto vertical marcado 3:4 con mayor altura destacando más el producto en foto
@@ -98,11 +99,34 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
 
         {/* Sección de Precio */}
         {showPrice && (
-          <div className={`${compact ? 'mt-1.5 pt-1.5' : 'mt-2 pt-2'} border-t border-gray-100 flex items-center justify-between`}>
-            <span className="text-[11px] text-gray-400 font-medium">Precio:</span>
-            <span className="text-sm font-bold text-green-700">
-              {formatPrice(product, { onlyAvailable: true })}
-            </span>
+          <div className={`${compact ? 'mt-1.5 pt-1.5' : 'mt-2 pt-2'} border-t border-gray-100`}>
+            {pricedVariants.length <= 1 ? (
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-gray-400 font-medium">Precio:</span>
+                <span className="text-sm font-bold text-green-700">
+                  {formatPrice(product, { onlyAvailable: true })}
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[10px] text-gray-400 font-medium border-b border-gray-50 pb-0.5">
+                  <span>Variantes:</span>
+                  <span className="text-gray-400 font-normal">{pricedVariants.length} opciones</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {pricedVariants.map(v => (
+                    <div key={v.id} className="flex items-center justify-between text-[11px] leading-tight">
+                      <span className="text-gray-600 truncate max-w-[110px]" title={v.name}>
+                        {v.name}:
+                      </span>
+                      <span className="font-bold text-green-700 tabular-nums">
+                        {formatCurrency(v.price!)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

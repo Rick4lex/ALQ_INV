@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Product, ViewMode } from '../types';
-import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History, CheckCircle, Square, CheckSquare } from 'lucide-react';
-import { formatPrice } from '../utils';
+import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History, CheckCircle, Square, CheckSquare, ChevronDown } from 'lucide-react';
+import { formatPrice, formatCurrency, getPricedVariants, getProductPriceInfo } from '../utils';
 import { useAppContext } from '../contexts/AppContext';
 
 interface ProductCardProps {
@@ -24,14 +24,17 @@ const ProductCard: React.FC<ProductCardProps> = ({
 }) => {
   const { setModal, handleRestoreProduct } = useAppContext();
   const [imgError, setImgError] = useState(false);
+  const [showVariantsDropdown, setShowVariantsDropdown] = useState(false);
 
   const totalStock = useMemo(() => product.variants.reduce((sum, v) => sum + v.stock, 0), [product.variants]);
-  const priceDisplay = useMemo(() => formatPrice(product), [product]);
+  const pricedVariants = useMemo(() => getPricedVariants(product), [product]);
+  const priceInfo = useMemo(() => getProductPriceInfo(product), [product]);
   const hasImage = !imgError && product.imageUrls && product.imageUrls[0];
   const stockStatusColor = totalStock > 10 ? 'bg-brand-green' : totalStock > 3 ? 'bg-yellow-500' : 'bg-brand-red';
 
   const cardClasses = `
-    bg-gray-800/50 backdrop-blur-sm border rounded-xl shadow-lg overflow-hidden transition-all duration-300 relative
+    bg-gray-800/50 backdrop-blur-sm border rounded-xl shadow-lg transition-all duration-300 relative
+    ${showVariantsDropdown ? 'z-20' : 'z-0'}
     ${isFusionMode || isSelectionMode ? 'cursor-pointer' : ''}
     ${isSelected ? 'border-blue-500/80 ring-2 ring-blue-500/50 shadow-blue-500/30' : 
       isSelectedForFusion ? 'border-green-500/80 ring-2 ring-green-500/50 shadow-green-500/30' : 
@@ -41,7 +44,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
     ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row items-center'}
   `;
 
-  const imageContainerClasses = viewMode === 'grid' ? 'w-full h-56' : 'w-28 h-28 flex-shrink-0';
+  const imageContainerClasses = viewMode === 'grid' 
+    ? 'w-full h-56 rounded-t-xl overflow-hidden' 
+    : 'w-28 h-28 rounded-l-xl overflow-hidden flex-shrink-0';
   const contentClasses = `flex flex-col flex-grow ${viewMode === 'grid' ? 'p-4' : 'p-3'}`;
 
   const handleCardClick = () => {
@@ -83,7 +88,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
         <div className="flex-grow">
           <div className="flex items-center gap-2">
             <p className="text-xs text-purple-400 font-semibold uppercase">{product.category}</p>
-            {priceDisplay !== 'N/A' && <span className={`w-2.5 h-2.5 rounded-full ${stockStatusColor}`} title={`Stock Total: ${totalStock}`}></span>}
+            {priceInfo.hasPricedVariants && <span className={`w-2.5 h-2.5 rounded-full ${stockStatusColor}`} title={`Stock Total: ${totalStock}`}></span>}
           </div>
           <h3 className="text-lg font-bold text-white mt-1">{product.title}</h3>
           
@@ -93,7 +98,103 @@ const ProductCard: React.FC<ProductCardProps> = ({
             ))}
           </div>
 
-          {priceDisplay !== 'N/A' && <p className="text-xl font-light text-green-400 mt-2">{priceDisplay}</p>}
+          {priceInfo.hasPricedVariants && (
+            <div className="relative mt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {priceInfo.isOutOfStock ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-light text-gray-400 line-through tabular-nums" title="Precio referencial (Agotado)">
+                      {priceInfo.formatted}
+                    </span>
+                    <span className="text-[11px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full border border-red-500/30 font-semibold tracking-wide">
+                      Agotado
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xl font-light text-green-400">{priceInfo.formatted}</p>
+                )}
+
+                {pricedVariants.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowVariantsDropdown(prev => !prev);
+                    }}
+                    className="text-[11px] bg-gray-700/80 hover:bg-gray-700 text-purple-300 hover:text-purple-200 px-2 py-0.5 rounded-md flex items-center gap-1 transition-colors border border-purple-500/30 font-medium cursor-pointer"
+                    title="Ver todas las variantes y sus precios"
+                  >
+                    <span>{pricedVariants.length} vars</span>
+                    <ChevronDown size={12} className={`transition-transform duration-200 ${showVariantsDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                )}
+              </div>
+
+              {/* Lista desplegable flotante por encima de la tarjeta para evitar recortes */}
+              {showVariantsDropdown && pricedVariants.length > 1 && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowVariantsDropdown(false);
+                    }} 
+                  />
+                  <div 
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ backgroundColor: '#111827' }}
+                    className="absolute left-0 top-full mt-1.5 w-72 max-w-[calc(100vw-2.5rem)] bg-gray-950 border border-purple-500/70 rounded-xl p-3 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-2">
+                      <span className="text-[11px] font-bold text-gray-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                        Variantes Disponibles
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowVariantsDropdown(false)}
+                        className="text-[11px] text-gray-400 hover:text-white px-2 py-0.5 rounded hover:bg-gray-800 transition-colors"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
+                      {pricedVariants.map(v => {
+                        const isOutOfStock = v.stock <= 0;
+                        return (
+                          <div 
+                            key={v.id} 
+                            style={{ backgroundColor: isOutOfStock ? '#181f2c' : '#1f2937' }}
+                            className={`flex items-center justify-between text-xs py-2 px-2.5 rounded-lg border transition-colors ${
+                              isOutOfStock 
+                                ? 'border-gray-800' 
+                                : 'border-gray-700 hover:border-purple-500/40'
+                            }`}
+                          >
+                            <div className="truncate pr-2">
+                              <span className={`font-semibold block truncate ${isOutOfStock ? 'text-gray-400' : 'text-white'}`} title={v.name}>
+                                {v.name}
+                              </span>
+                              <span className={`text-[10px] font-medium ${isOutOfStock ? 'text-red-400' : 'text-gray-400'}`}>
+                                {isOutOfStock ? 'Sin stock (0)' : `Stock: ${v.stock}`}
+                              </span>
+                            </div>
+                            <span className={`tabular-nums whitespace-nowrap ${
+                              isOutOfStock 
+                                ? 'text-gray-500 line-through font-semibold text-xs' 
+                                : 'text-green-400 font-bold text-xs'
+                            }`}>
+                              {formatCurrency(v.price!)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {viewMode === 'grid' && <p className="text-sm text-gray-300 mt-2 line-clamp-2">{product.details || product.description}</p>}
         </div>
         

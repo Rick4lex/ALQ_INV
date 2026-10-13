@@ -83,7 +83,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
   
   if (fusionMode) {
     return (
-      <div className="sticky top-[89px] z-10 bg-yellow-900/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-yellow-500/40 text-center">
+      <div className="sticky top-[80px] md:top-[89px] z-30 bg-yellow-900/90 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-yellow-500/40 text-center">
           <h3 className="text-lg font-bold text-yellow-300">Modo Fusión Activo</h3>
           <p className="text-yellow-400 mb-4">Selecciona dos productos del catálogo para combinarlos.</p>
           <div className="flex justify-center items-center gap-4">
@@ -100,7 +100,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
 
   if (selectedProductIds.size > 0) {
      return (
-      <div className="sticky top-[89px] z-10 bg-blue-900/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-blue-500/40 text-center">
+      <div className="sticky top-[80px] md:top-[89px] z-30 bg-blue-900/90 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-blue-500/40 text-center">
           <h3 className="text-lg font-bold text-blue-300">Modo de Selección Múltiple</h3>
           <p className="text-blue-400">Selecciona los productos en los que deseas realizar acciones masivas.</p>
       </div>
@@ -109,7 +109,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
 
 
   return (
-    <div className="sticky top-[89px] z-10 bg-gray-800/60 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-lg border border-purple-500/20">
+    <div className="sticky top-[80px] md:top-[89px] z-30 bg-gray-900/95 md:bg-gray-800/95 backdrop-blur-lg p-4 rounded-xl mb-6 shadow-xl border border-purple-500/30">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-center">
         {/* 1. Buscador */}
         <div className="relative">
@@ -141,7 +141,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
               <ChevronDown size={18} className={`transition-transform text-gray-400 flex-shrink-0 ${tagsDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
           {tagsDropdownOpen && (
-            <div className="absolute top-full mt-2 w-full sm:w-64 left-0 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-20 p-2">
+            <div className="absolute top-full mt-2 w-full sm:w-64 left-0 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl z-40 p-2">
               <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-700 text-xs">
                 <span className="text-gray-400 font-medium">Series / Hints</span>
                 {selectedTags.length > 0 && (
@@ -194,7 +194,7 @@ const FilterBar: React.FC<FilterBarProps> = ({ productCount, allTags }) => {
           </button>
 
           {photoDropdownOpen && (
-            <div className="absolute top-full mt-2 w-full sm:w-64 left-0 sm:left-auto sm:right-0 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl z-30 p-1.5 space-y-1">
+            <div className="absolute top-full mt-2 w-full sm:w-64 left-0 sm:left-auto sm:right-0 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl z-40 p-1.5 space-y-1">
               <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-700/80 mb-1">
                 Filtro y Orden de Fotos
               </div>

@@ -16,7 +16,7 @@ const Header: React.FC = () => {
   const isSpecialMode = fusionMode || selectedProductIds.size > 0;
 
   return (
-    <header className="sticky top-0 z-20 bg-gray-900/70 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
+    <header className="sticky top-0 z-40 bg-gray-900/90 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
       <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
         <a href="https://rick4lex.github.io/ALQUIMA/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
            <Sparkles className="h-8 w-8 text-purple-400" />

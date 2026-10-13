@@ -1,6 +1,6 @@
 {
-  "summary": "Plan de implementación para actualizar el encabezado del catálogo PDF generado, reemplazando el texto e icono 'Alquima Mizu' por el logo oficial estilizado en la portada principal y en versión miniatura en las páginas siguientes, manteniendo el subtítulo institucional.",
-  "updatedAt": "2026-10-13T01:30:57.318632958Z",
+  "summary": "Plan para corregir el orden de apilamiento (z-index) y superposición entre la barra fija de filtros (FilterBar), la cabecera (Header) y las tarjetas de productos (ProductCard), asegurando que las tarjetas se desplacen por debajo del filtro al hacer scroll.",
+  "updatedAt": "2026-10-13T03:00:18.035863390Z",
   "requestFeedback": true,
   "userFacing": true
 }
