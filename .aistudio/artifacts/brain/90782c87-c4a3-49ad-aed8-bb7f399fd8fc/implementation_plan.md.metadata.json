@@ -1,6 +1,6 @@
 {
-  "summary": "Plan de implementación para eliminar el indicador de precio por unidad (c/u) de paquetes en tarjetas principales, catálogo PDF y exportación Markdown, conservándolo exclusivamente en el modal de Editar Producto en la variante de venta, y manteniendo la columna de items en base de datos y CSV.",
-  "updatedAt": "2026-10-12T23:42:28.103375231Z",
+  "summary": "Plan de implementación para actualizar el encabezado del catálogo PDF generado, reemplazando el texto e icono 'Alquima Mizu' por el logo oficial estilizado en la portada principal y en versión miniatura en las páginas siguientes, manteniendo el subtítulo institucional.",
+  "updatedAt": "2026-10-13T01:30:57.318632958Z",
   "requestFeedback": true,
   "userFacing": true
 }
