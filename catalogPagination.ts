@@ -1,141 +1,275 @@
-import { Product } from './types';
-import { productSortComparator } from './utils';
+import { Product, Variant } from './types';
 
-export type CatalogGroupMode = 'none' | 'series' | 'category';
-
-export interface CatalogPage {
-  pageNumber: number;
-  totalPages: number;
-  sectionTitle?: string;
-  isFirstPageOfSection: boolean;
-  products: Product[];
+export interface CatalogItem {
+  key: string;
+  product: Product;
+  assignedVariants: Variant[];
+  chunkIndex: number;
+  totalChunks: number;
+  totalVariantsCount: number;
+  variantStartIndex: number;
+  variantEndIndex: number;
+  hasUniformPrice: boolean;
+  uniformPriceValue: number;
+  seriesLabel: string;
 }
 
+export interface CatalogPageData {
+  pageNumber: number;
+  totalPages: number;
+  sectionTitle: string;
+  isFirstPageOfSection: boolean;
+  isMixedSection: boolean; // Indica si la hoja agrupa múltiples series pequeñas
+  items: CatalogItem[];
+  products?: Product[];
+}
+
+// Aliases para compatibilidad con el resto del proyecto
+export type CatalogPage = CatalogPageData;
+export type CatalogGroupMode = 'none' | 'series' | 'category';
+
 export interface CatalogPaginationOptions {
-  pageSize?: number;
+  pageSize?: number | 6 | 9;
   groupMode?: CatalogGroupMode;
+  onlyAvailable?: boolean; // Sincronizado con el filtro "Solo disponibles" del modal
+  packSmallSeries?: boolean; // Activa la compactación de series de 1 a 3 tarjetas
 }
 
 /**
- * Divide y organiza una lista de productos en páginas estructuradas para impresión y PDF.
- * Soporta paginación continua o segmentada por Series/Colecciones (imageHint) o Categorías.
+ * Extrae el nombre principal de la serie ignorando sub-etiquetas después de '|'
  */
-export const paginateCatalog = (
+export function getPrimarySeriesName(product: Product): string {
+  const rawHint = product.imageHint?.[0] || 'General';
+  return rawHint.split('|')[0].trim() || 'General';
+}
+
+/**
+ * Expande o consolida las variantes de cada producto según igualdad de precios y stock
+ */
+export function expandProductsForCatalog(
   products: Product[],
-  options: CatalogPaginationOptions = {}
-): CatalogPage[] => {
-  const { pageSize = 6, groupMode = 'series' } = options;
+  pageSize: number = 6,
+  onlyAvailable: boolean = true
+): CatalogItem[] {
+  const isCompact = pageSize === 9;
+  const items: CatalogItem[] = [];
 
-  if (!products || products.length === 0) {
-    return [];
-  }
+  for (const product of products) {
+    const rawVariants = Array.isArray(product.variants) ? product.variants : [];
+    const seriesLabel = getPrimarySeriesName(product);
 
-  const sorted = [...products].sort(productSortComparator);
+    // 1. Filtrar variantes: si "onlyAvailable" está activo, exigir stock > 0 y precio > 0
+    let validVariants = rawVariants.filter((v) => {
+      const hasPrice = Number(v.price) > 0;
+      const hasStock = Number(v.stock) > 0;
+      return onlyAvailable ? hasPrice && hasStock : hasPrice;
+    });
 
-  // Modo Continuo (sin saltos por sección)
-  if (groupMode === 'none') {
-    const totalPages = Math.ceil(sorted.length / pageSize) || 1;
-    const pages: CatalogPage[] = [];
-
-    for (let i = 0; i < sorted.length; i += pageSize) {
-      const pageIndex = Math.floor(i / pageSize) + 1;
-      pages.push({
-        pageNumber: pageIndex,
-        totalPages,
-        isFirstPageOfSection: pageIndex === 1,
-        products: sorted.slice(i, i + pageSize),
-      });
+    // Fallback seguro si un producto no tiene variantes con precio > 0
+    if (validVariants.length === 0) {
+      validVariants = onlyAvailable
+        ? rawVariants.filter((v) => Number(v.stock) > 0)
+        : rawVariants;
+      if (validVariants.length === 0) validVariants = rawVariants;
     }
 
-    return pages;
+    const totalVariantsCount = validVariants.length;
+
+    // 2. Verificar si todas las variantes activas tienen exactamente el mismo precio
+    const uniquePrices = Array.from(
+      new Set(validVariants.map((v) => Number(v.price) || 0).filter((p) => p > 0))
+    );
+    const hasUniformPrice = uniquePrices.length === 1;
+    const uniformPriceValue = hasUniformPrice ? uniquePrices[0] : 0;
+
+    // 3. Definir límite de variantes por tarjeta:
+    // - Precios iguales: hasta 8 variantes en modo 6 prods (chips) o 6 en modo 9 prods.
+    // - Precios distintos: máximo 3 variantes en modo 6 prods o 2 en modo 9 prods.
+    const maxVariantsPerCard = hasUniformPrice
+      ? (isCompact ? 6 : 8)
+      : (isCompact ? 2 : 3);
+
+    if (totalVariantsCount <= maxVariantsPerCard) {
+      items.push({
+        key: `${product.id}-chunk-0`,
+        product,
+        assignedVariants: validVariants,
+        chunkIndex: 0,
+        totalChunks: 1,
+        totalVariantsCount,
+        variantStartIndex: 1,
+        variantEndIndex: Math.max(1, totalVariantsCount),
+        hasUniformPrice,
+        uniformPriceValue,
+        seriesLabel,
+      });
+    } else {
+      const totalChunks = Math.ceil(totalVariantsCount / maxVariantsPerCard);
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * maxVariantsPerCard;
+        const chunkAssignedVariants = validVariants.slice(start, start + maxVariantsPerCard);
+        items.push({
+          key: `${product.id}-chunk-${i}`,
+          product,
+          assignedVariants: chunkAssignedVariants,
+          chunkIndex: i,
+          totalChunks,
+          totalVariantsCount,
+          variantStartIndex: start + 1,
+          variantEndIndex: start + chunkAssignedVariants.length,
+          hasUniformPrice,
+          uniformPriceValue,
+          seriesLabel,
+        });
+      }
+    }
   }
 
-  // Modo Agrupado por Serie / Franquicia (imageHint)
+  return items;
+}
+
+/**
+ * Pagina el catálogo ordenando primero las series de mayor volumen y
+ * compactando al final las series pequeñas (1 a 3 tarjetas) en hojas compartidas.
+ */
+export function paginateCatalog(
+  products: Product[],
+  options: CatalogPaginationOptions = {}
+): CatalogPageData[] {
+  const {
+    pageSize = 6,
+    groupMode = 'series',
+    onlyAvailable = true,
+    packSmallSeries = true,
+  } = options;
+
+  const preliminaryPages: Omit<CatalogPageData, 'pageNumber' | 'totalPages'>[] = [];
+
   if (groupMode === 'series') {
-    const groups: Record<string, Product[]> = {};
+    const groups: Record<string, { displayTitle: string; items: CatalogItem[] }> = {};
 
-    sorted.forEach(product => {
-      const series = (product.imageHint && product.imageHint.length > 0 && product.imageHint[0].trim())
-        ? product.imageHint[0].trim()
-        : 'Colección General';
+    // Agrupar productos normalizando mayúsculas/minúsculas (ej. DanDaDan == Dandadan)
+    for (const product of products) {
+      const primarySeries = getPrimarySeriesName(product);
+      const normKey = primarySeries.toLowerCase();
 
-      if (!groups[series]) {
-        groups[series] = [];
+      if (!groups[normKey]) {
+        groups[normKey] = {
+          displayTitle: primarySeries,
+          items: [],
+        };
       }
-      groups[series].push(product);
-    });
+      const expanded = expandProductsForCatalog([product], pageSize, onlyAvailable);
+      groups[normKey].items.push(...expanded);
+    }
 
-    const preliminaryPages: Array<{
-      sectionTitle: string;
-      isFirstPageOfSection: boolean;
-      products: Product[];
-    }> = [];
+    const allSeriesGroups = Object.values(groups).filter((g) => g.items.length > 0);
 
-    const sortedSeriesKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    // Separar series principales (>3 tarjetas) y series pequeñas (1 a 3 tarjetas)
+    const SMALL_SERIES_THRESHOLD = 3;
+    const mainSeries = packSmallSeries
+      ? allSeriesGroups.filter((g) => g.items.length > SMALL_SERIES_THRESHOLD)
+      : allSeriesGroups;
+    const smallSeries = packSmallSeries
+      ? allSeriesGroups.filter((g) => g.items.length <= SMALL_SERIES_THRESHOLD)
+      : [];
 
-    sortedSeriesKeys.forEach(seriesName => {
-      const seriesProducts = groups[seriesName];
-      for (let i = 0; i < seriesProducts.length; i += pageSize) {
+    // Ordenar por volumen de tarjetas (mayor a menor) y desempate alfabético
+    const sortByVolumeDesc = (
+      a: { displayTitle: string; items: CatalogItem[] },
+      b: { displayTitle: string; items: CatalogItem[] }
+    ) => {
+      if (b.items.length !== a.items.length) {
+        return b.items.length - a.items.length;
+      }
+      return a.displayTitle.localeCompare(b.displayTitle, 'es', { sensitivity: 'base' });
+    };
+
+    mainSeries.sort(sortByVolumeDesc);
+    smallSeries.sort(sortByVolumeDesc);
+
+    // 1. Generar páginas dedicadas para las series principales
+    for (const group of mainSeries) {
+      for (let i = 0; i < group.items.length; i += pageSize) {
+        const pageItems = group.items.slice(i, i + pageSize);
         preliminaryPages.push({
-          sectionTitle: seriesName,
+          sectionTitle: group.displayTitle,
           isFirstPageOfSection: i === 0,
-          products: seriesProducts.slice(i, i + pageSize),
+          isMixedSection: false,
+          items: pageItems,
+          products: pageItems.map((item) => item.product),
         });
       }
-    });
+    }
 
-    const totalPages = preliminaryPages.length || 1;
-
-    return preliminaryPages.map((page, index) => ({
-      pageNumber: index + 1,
-      totalPages,
-      sectionTitle: page.sectionTitle,
-      isFirstPageOfSection: page.isFirstPageOfSection,
-      products: page.products,
-    }));
-  }
-
-  // Modo Agrupado por Categoría
-  if (groupMode === 'category') {
-    const groups: Record<string, Product[]> = {};
-
-    sorted.forEach(product => {
-      const cat = product.category ? product.category.trim() : 'General';
-      if (!groups[cat]) {
-        groups[cat] = [];
+    // 2. Empaquetar de forma continua las series pequeñas (hasta llenar las 6 o 9 casillas por hoja)
+    if (smallSeries.length > 0) {
+      const packedSmallItems: CatalogItem[] = [];
+      for (const group of smallSeries) {
+        packedSmallItems.push(...group.items);
       }
-      groups[cat].push(product);
-    });
 
-    const preliminaryPages: Array<{
-      sectionTitle: string;
-      isFirstPageOfSection: boolean;
-      products: Product[];
-    }> = [];
+      for (let i = 0; i < packedSmallItems.length; i += pageSize) {
+        const pageItems = packedSmallItems.slice(i, i + pageSize);
+        const uniqueSeriesInPage = Array.from(
+          new Set(pageItems.map((item) => item.seriesLabel.toUpperCase()))
+        );
 
-    const sortedCats = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-
-    sortedCats.forEach(catName => {
-      const catProducts = groups[catName];
-      for (let i = 0; i < catProducts.length; i += pageSize) {
         preliminaryPages.push({
-          sectionTitle: catName.toUpperCase(),
-          isFirstPageOfSection: i === 0,
-          products: catProducts.slice(i, i + pageSize),
+          sectionTitle: uniqueSeriesInPage.join(' • '),
+          isFirstPageOfSection: true,
+          isMixedSection: uniqueSeriesInPage.length > 1,
+          items: pageItems,
+          products: pageItems.map((item) => item.product),
         });
       }
-    });
+    }
+  } else if (groupMode === 'category') {
+    const groups: Record<string, { displayTitle: string; items: CatalogItem[] }> = {};
+    for (const product of products) {
+      const cat = (product.category || 'General').trim();
+      const normKey = cat.toLowerCase();
+      if (!groups[normKey]) {
+        groups[normKey] = { displayTitle: cat, items: [] };
+      }
+      groups[normKey].items.push(...expandProductsForCatalog([product], pageSize, onlyAvailable));
+    }
 
-    const totalPages = preliminaryPages.length || 1;
+    const sortedCategories = Object.values(groups).sort((a, b) =>
+      b.items.length - a.items.length
+    );
 
-    return preliminaryPages.map((page, index) => ({
-      pageNumber: index + 1,
-      totalPages,
-      sectionTitle: page.sectionTitle,
-      isFirstPageOfSection: page.isFirstPageOfSection,
-      products: page.products,
-    }));
+    for (const group of sortedCategories) {
+      for (let i = 0; i < group.items.length; i += pageSize) {
+        const pageItems = group.items.slice(i, i + pageSize);
+        preliminaryPages.push({
+          sectionTitle: group.displayTitle,
+          isFirstPageOfSection: i === 0,
+          isMixedSection: true, // Mostrar badge de serie en cada foto cuando se agrupa por categoría
+          items: pageItems,
+          products: pageItems.map((item) => item.product),
+        });
+      }
+    }
+  } else {
+    // Flujo continuo sin agrupación
+    const allItems = expandProductsForCatalog(products, pageSize, onlyAvailable);
+    for (let i = 0; i < allItems.length; i += pageSize) {
+      const pageItems = allItems.slice(i, i + pageSize);
+      preliminaryPages.push({
+        sectionTitle: 'Catálogo General',
+        isFirstPageOfSection: i === 0,
+        isMixedSection: true,
+        items: pageItems,
+        products: pageItems.map((item) => item.product),
+      });
+    }
   }
 
-  return [];
-};
+  const totalPages = preliminaryPages.length;
+  return preliminaryPages.map((page, idx) => ({
+    ...page,
+    pageNumber: idx + 1,
+    totalPages,
+  }));
+}

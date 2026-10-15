@@ -9,17 +9,28 @@ interface CatalogPreviewProps {
   pageSize?: number;
   groupMode?: CatalogGroupMode;
   showPrices?: boolean;
+  onlyAvailable?: boolean;
+  showAvailableOnly?: boolean;
 }
 
 const CatalogPreview: React.FC<CatalogPreviewProps> = ({ 
   products, 
   pageSize = 6, 
   groupMode = 'series',
-  showPrices = true
+  showPrices = true,
+  onlyAvailable = true,
+  showAvailableOnly
 }) => {
+  const effectiveOnlyAvailable = showAvailableOnly !== undefined ? showAvailableOnly : onlyAvailable;
+
   const pages = useMemo(() => {
-    return paginateCatalog(products, { pageSize, groupMode });
-  }, [products, pageSize, groupMode]);
+    return paginateCatalog(products, {
+      pageSize,
+      groupMode,
+      onlyAvailable: effectiveOnlyAvailable, // Conecta el switch "Solo disponibles" del ExportModal
+      packSmallSeries: true,
+    });
+  }, [products, pageSize, groupMode, effectiveOnlyAvailable]);
 
   if (pages.length === 0) {
     return (

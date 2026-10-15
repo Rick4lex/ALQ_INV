@@ -224,8 +224,13 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
 
   const estimatedCatalogPages = useMemo(() => {
     if (format !== 'catalog') return 0;
-    return paginateCatalog(filteredProducts, { pageSize: catalogPageSize, groupMode: catalogGroupMode }).length;
-  }, [filteredProducts, catalogPageSize, catalogGroupMode, format]);
+    return paginateCatalog(filteredProducts, { 
+      pageSize: catalogPageSize, 
+      groupMode: catalogGroupMode,
+      onlyAvailable: catalogOnlyInStock,
+      packSmallSeries: true,
+    }).length;
+  }, [filteredProducts, catalogPageSize, catalogGroupMode, catalogOnlyInStock, format]);
 
   const nonIgnoredProducts = useMemo(() => {
     if (!products) return [];
@@ -484,8 +489,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
     switch (format) {
       case 'catalog':
         return (
-          <div className="bg-gray-700 w-full h-full overflow-auto p-4 md:p-8">
-            <div className="no-print mx-auto max-w-4xl mb-4 space-y-4">
+          <div className="catalog-container-wrapper bg-gray-900/95 w-full h-full overflow-auto p-4 md:p-8">
+            <div className="no-print mx-auto max-w-4xl mb-6 space-y-4">
               {/* Botón Principal y Resumen de Páginas */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-800/90 p-3 rounded-xl border border-gray-600 shadow-md">
                 <button 
@@ -666,12 +671,13 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
                 </details>
               )}
             </div>
-            <div id="catalog-to-print" className="bg-white text-black p-8 md:p-12 rounded-lg shadow-2xl max-w-4xl mx-auto my-8">
+            <div id="catalog-to-print" className="w-full max-w-4xl mx-auto my-4">
               <CatalogPreview 
                 products={filteredProducts} 
                 groupMode={catalogGroupMode} 
                 pageSize={catalogPageSize} 
                 showPrices={catalogShowPrices}
+                onlyAvailable={catalogOnlyInStock}
               />
             </div>
           </div>

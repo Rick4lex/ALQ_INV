@@ -103,18 +103,48 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, pr
       alert("El título es obligatorio.");
       return;
     }
+    const savedImageUrls = product.imageUrls.filter(url => url && url.trim() !== '');
     const productToSave: Product = {
       ...product,
-      imageUrls: product.imageUrls.filter(url => url && url.trim() !== ''),
+      imageUrls: savedImageUrls,
       id: product.id || `${Date.now()}-${product.title.replace(/\s+/g, '-').toLowerCase()}`,
-      variants: product.variants.map(v => ({...v, cost: v.cost || 0, stock: v.stock >= 0 ? v.stock : 0, itemCount: v.itemCount || 1})),
+      variants: product.variants.map(v => {
+        const cleanV: Variant = {
+          ...v,
+          cost: v.cost || 0,
+          stock: v.stock >= 0 ? v.stock : 0,
+          itemCount: v.itemCount || 1,
+        };
+        if (v.imageUrl && savedImageUrls.includes(v.imageUrl)) {
+          cleanV.imageUrl = v.imageUrl;
+        } else {
+          delete cleanV.imageUrl;
+        }
+        return cleanV;
+      }),
       imageHint: product.imageHint.filter(hint => hint && hint.trim() !== ''),
     };
     handleProductSave(productToSave);
     onClose();
   };
   
-  const cleanImageUrls = product.imageUrls.filter(u => u);
+  const cleanImageUrls = (product.imageUrls || []).filter(u => u && u.trim() !== '');
+
+  // Sub-etiquetas o referencias secundarias desde imageHint (ej. "Dangle:Colgante | BTS" o items separados por coma)
+  const subHints = React.useMemo(() => {
+    if (!product.imageHint || product.imageHint.length === 0) return [];
+    const hints: string[] = [];
+    product.imageHint.forEach(h => {
+      if (!h) return;
+      if (h.includes('|')) {
+        const parts = h.split('|').slice(1).join('|').split(',').map(s => s.trim()).filter(Boolean);
+        hints.push(...parts);
+      } else {
+        hints.push(h.trim());
+      }
+    });
+    return hints;
+  }, [product.imageHint]);
   
   const handlePrevImage = () => {
     setImgError(false);
@@ -381,6 +411,56 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, pr
                   <div className="col-span-12 sm:col-span-1 flex items-end justify-end">
                     <button type="button" onClick={() => removeVariant(index)} disabled={product.variants.length <= 1} className="p-2 rounded-full text-red-400 hover:bg-red-500/20 disabled:opacity-50" aria-label="Eliminar Variante"><Trash2 size={18} /></button>
                   </div>
+
+                  {/* Selector opcional de imagen asociada dentro de cada fila de variante en ProductFormModal.tsx */}
+                  {cleanImageUrls.length > 1 && (
+                    <div className="col-span-12 flex items-center gap-2 mt-1 pt-2 border-t border-gray-800/80">
+                      <label className="text-[11px] text-gray-400 shrink-0">
+                        Foto ref.:
+                      </label>
+                      <select
+                        value={variant.imageUrl || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleVariantChange(index, 'imageUrl', val);
+                          if (val) {
+                            const foundIdx = cleanImageUrls.indexOf(val);
+                            if (foundIdx !== -1) {
+                              setImgError(false);
+                              setCurrentImageIndex(foundIdx);
+                            }
+                          }
+                        }}
+                        className="bg-gray-800 border border-gray-600 rounded py-1 px-2 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 max-w-[280px] truncate"
+                      >
+                        <option value="">Foto general (por defecto)</option>
+                        {cleanImageUrls.map((url, imgIdx) => {
+                          const subTag = subHints[imgIdx] || (imgIdx > 0 && subHints[imgIdx - 1]) || '';
+                          return (
+                            <option key={imgIdx} value={url}>
+                              Foto #{imgIdx + 1} {imgIdx === 0 ? '(Principal)' : ''}{subTag ? ` — ${subTag}` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {(variant.imageUrl || cleanImageUrls[0]) && (
+                        <img
+                          src={variant.imageUrl || cleanImageUrls[0]}
+                          alt={variant.name || 'Variante'}
+                          className="w-6 h-6 rounded object-cover border border-purple-500/50 flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
+                          onClick={() => {
+                            const targetUrl = variant.imageUrl || cleanImageUrls[0];
+                            const foundIdx = cleanImageUrls.indexOf(targetUrl);
+                            if (foundIdx !== -1) {
+                              setImgError(false);
+                              setCurrentImageIndex(foundIdx);
+                            }
+                          }}
+                          title="Clic para previsualizar en el visor principal"
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

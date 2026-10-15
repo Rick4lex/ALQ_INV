@@ -25,11 +25,13 @@ const ProductCard: React.FC<ProductCardProps> = ({
   const { setModal, handleRestoreProduct } = useAppContext();
   const [imgError, setImgError] = useState(false);
   const [showVariantsDropdown, setShowVariantsDropdown] = useState(false);
+  const [activeVariantImage, setActiveVariantImage] = useState<string | null>(null);
 
   const totalStock = useMemo(() => product.variants.reduce((sum, v) => sum + v.stock, 0), [product.variants]);
   const pricedVariants = useMemo(() => getPricedVariants(product), [product]);
   const priceInfo = useMemo(() => getProductPriceInfo(product), [product]);
-  const hasImage = !imgError && product.imageUrls && product.imageUrls[0];
+  const displayedImage = activeVariantImage || (product.imageUrls && product.imageUrls[0]);
+  const hasImage = !imgError && Boolean(displayedImage);
   const stockStatusColor = totalStock > 10 ? 'bg-brand-green' : totalStock > 3 ? 'bg-yellow-500' : 'bg-brand-red';
 
   const cardClasses = `
@@ -69,11 +71,17 @@ const ProductCard: React.FC<ProductCardProps> = ({
       <div 
         className={`${imageContainerClasses} relative bg-gray-700 ${hasImage && !isFusionMode && !isSelectionMode ? 'cursor-pointer group' : ''}`}
         onClick={(e) => {
-          if (hasImage && !isFusionMode && !isSelectionMode) { e.stopPropagation(); onImageClick(product.imageUrls); }
+          if (hasImage && !isFusionMode && !isSelectionMode) {
+            e.stopPropagation();
+            const urls = activeVariantImage 
+              ? [activeVariantImage, ...product.imageUrls.filter(u => u !== activeVariantImage)]
+              : product.imageUrls;
+            onImageClick(urls);
+          }
         }}
       >
         {hasImage ? (
-          <img src={product.imageUrls[0]} alt={product.title} className="w-full h-full object-cover" onError={() => setImgError(true)} />
+          <img src={displayedImage} alt={product.title} className="w-full h-full object-cover transition-opacity duration-200" onError={() => setImgError(true)} />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-500"><ImageOff size={48} /></div>
         )}
@@ -161,23 +169,45 @@ const ProductCard: React.FC<ProductCardProps> = ({
                     <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
                       {pricedVariants.map(v => {
                         const isOutOfStock = v.stock <= 0;
+                        const isThisVariantImageActive = Boolean(v.imageUrl && activeVariantImage === v.imageUrl);
                         return (
                           <div 
                             key={v.id} 
+                            onClick={(e) => {
+                              if (v.imageUrl) {
+                                e.stopPropagation();
+                                setImgError(false);
+                                setActiveVariantImage(prev => prev === v.imageUrl ? null : v.imageUrl!);
+                              }
+                            }}
                             style={{ backgroundColor: isOutOfStock ? '#181f2c' : '#1f2937' }}
-                            className={`flex items-center justify-between text-xs py-2 px-2.5 rounded-lg border transition-colors ${
+                            className={`flex items-center justify-between text-xs py-2 px-2.5 rounded-lg border transition-all ${
+                              v.imageUrl ? 'cursor-pointer hover:border-purple-400' : ''
+                            } ${
+                              isThisVariantImageActive ? 'ring-1 ring-purple-400 border-purple-500 bg-purple-950/40' : ''
+                            } ${
                               isOutOfStock 
                                 ? 'border-gray-800' 
                                 : 'border-gray-700 hover:border-purple-500/40'
                             }`}
+                            title={v.imageUrl ? 'Tocar para ver su foto asignada en la tarjeta' : undefined}
                           >
-                            <div className="truncate pr-2">
-                              <span className={`font-semibold block truncate ${isOutOfStock ? 'text-gray-400' : 'text-white'}`} title={v.name}>
-                                {v.name}
-                              </span>
-                              <span className={`text-[10px] font-medium ${isOutOfStock ? 'text-red-400' : 'text-gray-400'}`}>
-                                {isOutOfStock ? 'Sin stock (0)' : `Stock: ${v.stock}`}
-                              </span>
+                            <div className="flex items-center gap-2 truncate pr-2">
+                              {v.imageUrl && (
+                                <img
+                                  src={v.imageUrl}
+                                  alt={v.name}
+                                  className="w-5 h-5 rounded object-cover border border-purple-400/50 flex-shrink-0"
+                                />
+                              )}
+                              <div className="truncate">
+                                <span className={`font-semibold block truncate ${isOutOfStock ? 'text-gray-400' : 'text-white'}`} title={v.name}>
+                                  {v.name}
+                                </span>
+                                <span className={`text-[10px] font-medium ${isOutOfStock ? 'text-red-400' : 'text-gray-400'}`}>
+                                  {isOutOfStock ? 'Sin stock (0)' : `Stock: ${v.stock}`}
+                                </span>
+                              </div>
                             </div>
                             <span className={`tabular-nums whitespace-nowrap ${
                               isOutOfStock 

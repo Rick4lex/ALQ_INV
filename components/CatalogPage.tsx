@@ -23,61 +23,68 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({
 
   return (
     <section 
-      className="catalog-page bg-white text-gray-900 flex flex-col justify-between mb-10 pb-6 border-b border-gray-300 last:border-b-0 last:mb-0 last:pb-0"
+      className="catalog-page bg-white text-gray-900 flex flex-col justify-between mb-8 p-6 sm:p-8 rounded-sm shadow-xl border border-gray-200/80 transition-shadow"
     >
       {/* Encabezado de Página */}
       <div className="w-full">
         {isFirstPage ? (
-          <header className="text-center mb-6 border-b-2 border-emerald-500 pb-5">
-            <div className="flex items-center justify-center mb-2">
+          <header className="text-center mb-4 sm:mb-5 border-b-2 border-emerald-500 pb-3 sm:pb-4">
+            <div className="flex items-center justify-center mb-1.5">
               <img 
                 src={ALQUIMA_LOGO_URL} 
                 alt="Alquima Mizu" 
-                className="h-12 md:h-14 max-w-[280px] object-contain drop-shadow-sm" 
+                className="h-10 sm:h-12 max-w-[260px] object-contain drop-shadow-xs" 
                 referrerPolicy="no-referrer"
               />
             </div>
-            <p className="text-sm md:text-base text-gray-600 font-semibold mt-0.5 tracking-wide">
+            <p className="text-xs sm:text-sm text-gray-600 font-semibold tracking-wide">
               Catálogo Oficial de Productos
             </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-3 mt-3 text-xs text-gray-500">
-              <span className="flex items-center gap-1.5 bg-gray-100 px-2.5 py-1 rounded-full font-medium text-gray-700">
-                <Calendar size={13} className="text-emerald-600" />
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-2 text-[11px] text-gray-500">
+              <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-full font-medium text-gray-700">
+                <Calendar size={12} className="text-emerald-600" />
                 {new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}
               </span>
 
               {totalCatalogProducts !== undefined && (
-                <span className="flex items-center gap-1.5 bg-gray-100 px-2.5 py-1 rounded-full font-medium text-gray-700">
-                  <Layers size={13} className="text-emerald-600" />
+                <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-full font-medium text-gray-700">
+                  <Layers size={12} className="text-emerald-600" />
                   {totalCatalogProducts} {totalCatalogProducts === 1 ? 'producto' : 'productos'} en catálogo
                 </span>
               )}
 
               {page.sectionTitle && (
-                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-900 font-bold uppercase tracking-wide px-3 py-1 rounded-full border border-emerald-200">
-                  Sección: {page.sectionTitle}
-                </span>
+                <div className="inline-flex items-center gap-1.5 bg-teal-50/90 border border-teal-200/80 text-teal-800 px-3 py-1 rounded-md max-w-[72%]">
+                  <span className="text-[9.5px] font-bold uppercase tracking-wide truncate">
+                    {page.sectionTitle}
+                  </span>
+                  {!page.isFirstPageOfSection && !page.isMixedSection && (
+                    <span className="text-[8.5px] font-medium lowercase shrink-0">(cont.)</span>
+                  )}
+                </div>
               )}
             </div>
           </header>
         ) : (
-          <header className="flex items-center justify-between border-b border-gray-200 pb-2.5 mb-4">
+          <header className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
             <div className="flex items-center gap-2">
               <img 
                 src={ALQUIMA_LOGO_URL} 
                 alt="Alquima Mizu" 
-                className="h-5 w-auto max-w-[120px] object-contain" 
+                className="h-5 w-auto max-w-[110px] object-contain" 
                 referrerPolicy="no-referrer"
               />
-              <span className="text-xs text-gray-400 font-medium hidden sm:inline">• Catálogo Oficial</span>
+              <span className="text-[11px] text-gray-400 font-medium hidden sm:inline">• Catálogo Oficial</span>
             </div>
 
             {page.sectionTitle && (
-              <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 text-[11px] font-bold uppercase px-2.5 py-0.5 rounded border border-emerald-200/80">
-                <span>{page.sectionTitle}</span>
-                {!page.isFirstPageOfSection && (
-                  <span className="text-[10px] text-emerald-600 font-normal lowercase">(cont.)</span>
+              <div className="inline-flex items-center gap-1.5 bg-teal-50/90 border border-teal-200/80 text-teal-800 px-3 py-1 rounded-md max-w-[72%]" title={page.sectionTitle}>
+                <span className="text-[9.5px] font-bold uppercase tracking-wide truncate">
+                  {page.sectionTitle}
+                </span>
+                {!page.isFirstPageOfSection && !page.isMixedSection && (
+                  <span className="text-[8.5px] font-medium lowercase shrink-0">(cont.)</span>
                 )}
               </div>
             )}
@@ -85,28 +92,43 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({
         )}
 
         {/* Cuadrícula de Productos Fija (3 columnas) */}
-        <div className={`grid grid-cols-3 ${isCompact ? 'gap-2.5' : 'gap-3.5'}`}>
-          {page.products.map((product) => (
-            <CatalogProductCard 
-              key={product.id} 
-              product={product} 
-              compact={isCompact}
-              showPrice={showPrices}
-            />
-          ))}
+        <div className={`catalog-grid grid grid-cols-3 ${isCompact ? 'gap-2' : 'gap-3'}`}>
+          {page.items && page.items.length > 0 ? (
+            page.items.map((item) => (
+              <CatalogProductCard 
+                key={item.key} 
+                item={item} 
+                isCompact={isCompact}
+                compact={isCompact}
+                showSeriesBadge={page.isMixedSection}
+                showPrice={showPrices}
+              />
+            ))
+          ) : (
+            (page.products || []).map((product) => (
+              <CatalogProductCard 
+                key={product.id} 
+                product={product} 
+                isCompact={isCompact}
+                compact={isCompact}
+                showSeriesBadge={page.isMixedSection}
+                showPrice={showPrices}
+              />
+            ))
+          )}
         </div>
       </div>
 
       {/* Pie de Página Institucional */}
-      <footer className="w-full flex items-center justify-between text-xs text-gray-400 border-t border-gray-200 pt-3 mt-6">
+      <footer className="w-full flex items-center justify-between text-xs text-gray-400 border-t border-gray-200 pt-2.5 mt-3 sm:mt-4">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-600">Alquima Mizu</span>
+          <span className="font-semibold text-gray-600 text-[11px]">Alquima Mizu</span>
           <span className="text-gray-300 hidden sm:inline">•</span>
-          <span className="text-gray-400 text-[11px] hidden sm:inline">Disponibilidad sujeta a existencias</span>
+          <span className="text-gray-400 text-[10px] hidden sm:inline">Disponibilidad sujeta a existencias</span>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-gray-700 bg-gray-100 px-3 py-1 rounded-full text-[11px] border border-gray-200">
+          <span className="font-semibold text-gray-700 bg-gray-100 px-2.5 py-0.5 rounded-full text-[10px] border border-gray-200">
             Página {page.pageNumber} de {page.totalPages}
           </span>
         </div>

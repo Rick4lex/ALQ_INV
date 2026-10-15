@@ -28,6 +28,7 @@ export interface Variant {
   cost?: number;
   stock: number;
   itemCount?: number;
+  imageUrl?: string;
 }
 
 export interface Product {

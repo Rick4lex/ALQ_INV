@@ -1,6 +1,6 @@
 {
-  "summary": "Plan para corregir el orden de apilamiento (z-index) y superposición entre la barra fija de filtros (FilterBar), la cabecera (Header) y las tarjetas de productos (ProductCard), asegurando que las tarjetas se desplacen por debajo del filtro al hacer scroll.",
-  "updatedAt": "2026-10-13T03:00:18.035863390Z",
+  "summary": "Implementación completada con éxito:\n1. Restaurada la relación de aspecto vertical 3:4 (aspect-[3/4] min-h-[250px] sm:min-h-[260px] max-h-[290px] print:max-h-[84mm]) para tarjetas con foto en el diseño A4 de 6 productos, otorgando máxima presencia y esbeltez visual sin desbordar los 278mm de la hoja.\n2. Preservada la altura compacta h-32 (128px) para productos sin foto en el diseño de 6 productos, optimizando el espacio vertical y evitando vacíos excesivos.\n3. El diseño de 9 productos se mantiene completamente desacoplado e independiente en modo ultracompacto (h-26 / 104px para fotos y h-24 para sin foto) para que sus 3 filas encajen perfectamente en su hoja A4.",
+  "updatedAt": "2026-10-15T04:24:42.128246830Z",
   "requestFeedback": true,
   "userFacing": true
 }
