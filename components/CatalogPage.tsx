@@ -28,7 +28,7 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({
       {/* Encabezado de Página */}
       <div className="w-full">
         {isFirstPage ? (
-          <header className="text-center mb-4 sm:mb-5 border-b-2 border-emerald-500 pb-3 sm:pb-4">
+          <header className="catalog-header catalog-header-first text-center mb-4 sm:mb-5 border-b-2 border-emerald-500 pb-3 sm:pb-4">
             <div className="flex items-center justify-center mb-1.5">
               <img 
                 src={ALQUIMA_LOGO_URL} 
@@ -67,7 +67,7 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({
             </div>
           </header>
         ) : (
-          <header className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+          <header className="catalog-header catalog-header-page flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
             <div className="flex items-center gap-2">
               <img 
                 src={ALQUIMA_LOGO_URL} 

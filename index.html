@@ -96,16 +96,38 @@
           overflow: visible !important;
         }
 
-        /* Ocultar elementos no imprimibles */
+        /* Ocultar elementos no imprimibles de la app */
         .no-print,
         .print\:hidden,
         [role="dialog"] > header,
         body > #root > div > div:first-child,
         body > #root > div > footer,
-        header,
+        body > #root > div > header,
+        body > #root > header,
+        header:not(.catalog-header),
         nav,
         button {
           display: none !important;
+        }
+
+        /* Asegurar visibilidad total e intacta del encabezado del catálogo en impresión */
+        .catalog-page header,
+        .catalog-page .catalog-header {
+          display: flex !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+
+        .catalog-page header.text-center,
+        .catalog-page .catalog-header-first {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+
+        .catalog-page header img,
+        .catalog-page .catalog-header img {
+          object-fit: contain !important;
         }
 
         #catalog-to-print {
@@ -174,9 +196,15 @@
           justify-content: space-between !important;
         }
 
-        .catalog-page img {
+        .catalog-page article img {
           max-height: 100% !important;
           object-fit: cover !important;
+        }
+
+        .catalog-page header img,
+        .catalog-page .catalog-header img,
+        .catalog-page footer img {
+          object-fit: contain !important;
         }
       }
 

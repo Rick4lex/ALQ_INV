@@ -1,6 +1,6 @@
 {
-  "summary": "Implementación completada con éxito:\n1. Restaurada la relación de aspecto vertical 3:4 (aspect-[3/4] min-h-[250px] sm:min-h-[260px] max-h-[290px] print:max-h-[84mm]) para tarjetas con foto en el diseño A4 de 6 productos, otorgando máxima presencia y esbeltez visual sin desbordar los 278mm de la hoja.\n2. Preservada la altura compacta h-32 (128px) para productos sin foto en el diseño de 6 productos, optimizando el espacio vertical y evitando vacíos excesivos.\n3. El diseño de 9 productos se mantiene completamente desacoplado e independiente en modo ultracompacto (h-26 / 104px para fotos y h-24 para sin foto) para que sus 3 filas encajen perfectamente en su hoja A4.",
-  "updatedAt": "2026-10-15T04:24:42.128246830Z",
+  "summary": "Corrección de visibilidad del encabezado del catálogo en el PDF descargado:\n1. En index.html (@media print), la regla genérica 'header' estaba ocultando todas las etiquetas <header> del DOM, incluidas las del catálogo (Página 1 y páginas subsiguientes). Se especificó la regla para ocultar únicamente encabezados de la app (barra de navegación, modales, etc.) y se forzó la visibilidad explícita del encabezado (.catalog-header / .catalog-page header { display: flex / block !important; visibility: visible !important; }).\n2. En CatalogPage.tsx, se agregaron las clases semánticas 'catalog-header', 'catalog-header-first' y 'catalog-header-page'.\n3. Se protegió el logo institucional del encabezado y pie de página en impresión con 'object-fit: contain !important' para evitar deformaciones, manteniendo 'object-fit: cover' únicamente para las fotos de producto en las tarjetas (.catalog-page article img).",
+  "updatedAt": "2026-10-15T19:01:57.622591269Z",
   "requestFeedback": true,
   "userFacing": true
 }
