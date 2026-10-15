@@ -49,7 +49,7 @@
       @media print {
         @page {
           size: A4 portrait;
-          margin: 10mm 12mm;
+          margin: 8mm 10mm;
         }
 
         *, *::before, *::after {
@@ -61,9 +61,38 @@
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
+          background-color: #ffffff !important;
+          background-image: none !important;
           color: #111827 !important;
           width: 100% !important;
           height: auto !important;
+          overflow: visible !important;
+        }
+
+        /* Anular fondos oscuros, gradientes y filtros de toda la jerarquía de la app */
+        #root,
+        #root > div,
+        .min-h-screen,
+        .modal-overlay,
+        .modal-container,
+        .modal-body,
+        .catalog-container-wrapper {
+          background: #ffffff !important;
+          background-color: #ffffff !important;
+          background-image: none !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+          box-shadow: none !important;
+          border: none !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          position: static !important;
+          inset: auto !important;
           overflow: visible !important;
         }
 
@@ -72,28 +101,11 @@
         .print\:hidden,
         [role="dialog"] > header,
         body > #root > div > div:first-child,
-        body > #root > div > footer {
+        body > #root > div > footer,
+        header,
+        nav,
+        button {
           display: none !important;
-        }
-
-        /* Resetear contenedores del modal para que no generen cajas ni scroll */
-        .modal-overlay,
-        .modal-container,
-        .modal-body,
-        .fixed,
-        [role="dialog"] {
-          position: static !important;
-          inset: auto !important;
-          width: 100% !important;
-          height: auto !important;
-          max-height: none !important;
-          overflow: visible !important;
-          background: transparent !important;
-          box-shadow: none !important;
-          border: none !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          backdrop-filter: none !important;
         }
 
         #catalog-to-print {
@@ -104,7 +116,8 @@
           margin: 0 !important;
           box-shadow: none !important;
           border: none !important;
-          background: transparent !important;
+          background: #ffffff !important;
+          background-color: #ffffff !important;
           display: block !important;
         }
 
@@ -112,9 +125,8 @@
         .catalog-page {
           box-sizing: border-box !important;
           width: 100% !important;
-          min-height: 265mm !important;
-          max-height: 275mm !important;
-          height: 270mm !important;
+          height: 278mm !important;
+          max-height: 278mm !important;
           display: flex !important;
           flex-direction: column !important;
           justify-content: space-between !important;
@@ -125,7 +137,10 @@
           margin: 0 !important;
           padding: 0 !important;
           border: none !important;
+          box-shadow: none !important;
           background: #ffffff !important;
+          background-color: #ffffff !important;
+          overflow: hidden !important;
         }
 
         .catalog-page:last-child {
@@ -134,24 +149,29 @@
         }
         
         /* Cuadrícula de 3 columnas estable para WebKit y Gecko */
-        .catalog-page .grid {
+        .catalog-page .catalog-grid {
           display: grid !important;
           grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-          gap: 4mm !important;
+          gap: 3.5mm !important;
           flex-grow: 1 !important;
-          align-content: start !important;
+          align-content: stretch !important;
           break-inside: avoid !important;
           page-break-inside: avoid !important;
         }
         
         /* Tarjeta de producto en impresión */
         .catalog-page article,
-        .catalog-page .grid > * {
+        .catalog-page .catalog-grid > * {
           break-inside: avoid !important;
           page-break-inside: avoid !important;
           border: 1px solid #e5e7eb !important;
           box-shadow: none !important;
           background: #ffffff !important;
+          background-color: #ffffff !important;
+          height: 100% !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
         }
 
         .catalog-page img {
@@ -216,7 +236,7 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="./assets/index-BBvqZbvY.js"></script>
+  <script type="module" crossorigin src="./assets/index-D782x7bZ.js"></script>
 </head>
 <body class="bg-gray-900 text-white">
     <div id="root"></div>
