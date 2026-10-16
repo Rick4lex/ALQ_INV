@@ -112,7 +112,7 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
             </span>
             {totalVariantsCount > 1 && (
               <span className="text-[9px] text-gray-400 font-medium">
-                {totalVariantsCount} vars
+                {totalChunks > 1 ? `Parte ${chunkIndex + 1}/${totalChunks}` : `${totalVariantsCount} vars`}
               </span>
             )}
           </div>
@@ -140,23 +140,33 @@ export const CatalogProductCard: React.FC<CatalogProductCardProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] sm:text-[11px] text-gray-500 font-medium truncate">
-                    Precio c/u ({totalVariantsCount} modelos):
+                    {totalChunks > 1
+                      ? `Precio c/u (Modelos ${variantStartIndex}–${variantEndIndex} de ${totalVariantsCount}):`
+                      : `Precio c/u (${totalVariantsCount} modelos):`}
                   </span>
                   <span className="text-xs sm:text-sm font-bold text-green-700 tabular-nums">
                     {formatCurrency(uniformPriceValue || assignedVariants[0]?.price || 0)} c/u
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-1 max-h-12 overflow-hidden pt-0.5">
-                  {assignedVariants.map(v => (
-                    <span 
-                      key={v.id} 
-                      className="text-[8px] sm:text-[9px] bg-purple-50 text-purple-700 border border-purple-200/80 px-1.5 py-0.5 rounded font-medium truncate max-w-[100px]"
-                      title={v.name}
-                    >
-                      {v.name}
-                    </span>
+                {/* Propuesta B: Texto fluido continuo con nombres en violeta y separador | en gris con saltos de línea naturales */}
+                <p className={`${isCompactMode ? 'text-[8.5px] leading-snug line-clamp-2 min-h-[1.75rem]' : 'text-[9px] sm:text-[9.5px] leading-relaxed line-clamp-3 min-h-[2.4rem]'} text-gray-700 pt-0.5`}>
+                  {assignedVariants.map((v, idx) => (
+                    <React.Fragment key={v.id}>
+                      <span className="text-purple-800 font-medium whitespace-nowrap">
+                        {v.name}
+                      </span>
+                      {idx < assignedVariants.length - 1 && (
+                        <>
+                          {' '}
+                          <span className="text-gray-300 font-light select-none" aria-hidden="true">
+                            |
+                          </span>
+                          {' '}
+                        </>
+                      )}
+                    </React.Fragment>
                   ))}
-                </div>
+                </p>
               </div>
             ) : assignedVariants.length <= 1 && totalChunks <= 1 ? (
               <div className="flex items-center justify-between">

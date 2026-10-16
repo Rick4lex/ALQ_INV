@@ -55,8 +55,11 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({
               )}
 
               {page.sectionTitle && (
-                <div className="inline-flex items-center gap-1.5 bg-teal-50/90 border border-teal-200/80 text-teal-800 px-3 py-1 rounded-md max-w-[72%]">
-                  <span className="text-[9.5px] font-bold uppercase tracking-wide truncate">
+                <div 
+                  className={`inline-flex items-center gap-1.5 bg-teal-50/90 border border-teal-200/80 text-teal-800 px-3 py-1 rounded-md ${page.isMixedSection ? 'max-w-[70%] text-left' : 'max-w-[70%]'}`} 
+                  title={page.sectionTitle}
+                >
+                  <span className={`text-[9.5px] font-bold uppercase tracking-wide ${page.isMixedSection ? 'leading-tight line-clamp-2 break-words' : 'truncate'}`}>
                     {page.sectionTitle}
                   </span>
                   {!page.isFirstPageOfSection && !page.isMixedSection && (
@@ -79,8 +82,11 @@ export const CatalogPage: React.FC<CatalogPageProps> = ({
             </div>
 
             {page.sectionTitle && (
-              <div className="inline-flex items-center gap-1.5 bg-teal-50/90 border border-teal-200/80 text-teal-800 px-3 py-1 rounded-md max-w-[72%]" title={page.sectionTitle}>
-                <span className="text-[9.5px] font-bold uppercase tracking-wide truncate">
+              <div 
+                className={`inline-flex items-center gap-1.5 bg-teal-50/90 border border-teal-200/80 text-teal-800 px-3 py-1 rounded-md ${page.isMixedSection ? 'max-w-[70%] text-left' : 'max-w-[70%]'}`} 
+                title={page.sectionTitle}
+              >
+                <span className={`text-[9.5px] font-bold uppercase tracking-wide ${page.isMixedSection ? 'leading-tight line-clamp-2 break-words' : 'truncate'}`}>
                   {page.sectionTitle}
                 </span>
                 {!page.isFirstPageOfSection && !page.isMixedSection && (

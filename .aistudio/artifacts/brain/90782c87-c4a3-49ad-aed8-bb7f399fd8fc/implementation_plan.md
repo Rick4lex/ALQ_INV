@@ -1,24 +1,21 @@
-# Corrección: Visibilidad del Encabezado en el PDF del Catálogo
+# Implementación: Fase 2 - Normalización y Persistencia de Variantes en la App Web
 
-## Causa Raíz Identificada
-En la hoja de estilos de impresión `@media print` de `index.html`, la lista de elementos no imprimibles incluía la etiqueta genérica `header` (`header { display: none !important; }`), destinada originalmente a ocultar la barra superior de navegación de la aplicación web. Al ser un selector global de etiqueta, causaba que el navegador ocultara también los encabezados `<header>` de cada hoja del catálogo (`CatalogPage.tsx`), por lo que el encabezado se veía en pantalla pero desaparecía por completo al generar e imprimir el PDF.
+## Resumen de Cambios Aplicados
 
----
+### 1. Preservación y Conciliación Bidireccional de `imageUrl` (`contexts/AppContext.tsx`)
+- **Problema abordado**: Al sincronizar con Google Sheets, si la hoja no devolvía la URL de la variante o venía incompleta, la base de datos local sobrescribía la variante eliminando la referencia fotográfica vinculada.
+- **Solución implementada**:
+  - **Mapeo preventivo en memoria**: Antes de procesar los datos entrantes de Sheets, se lee la base de datos local (`db.products`) y se indexan todos los `imageUrl` existentes por ID de variante (`localVariantImageMap`).
+  - **Normalización inteligente**:
+    ```typescript
+    const remoteImageUrl = String(v.imageUrl || v.imagenUrl || v.fotoRef || v.image_url || '').trim();
+    const localImageUrl = localVariantImageMap.get(String(v.id)) || '';
+    const finalImageUrl = remoteImageUrl || localImageUrl;
+    ```
+    Si la variante ya tenía una foto vinculada en la app, se preserva automáticamente incluso si Sheets todavía no envía esa columna.
+    Si Sheets envía una nueva URL (mediante `imageUrl`, `imagenUrl`, `fotoRef` o `image_url`), se adopta y actualiza.
+  - **Guardado atómico en IndexedDB**: `db.products.bulkPut(normalizedProducts)` escribe cada variante con su `imageUrl` definitivo.
 
-## Solución Aplicada
-
-1. **Aislamiento y Reglas de Impresión Específicas (`index.html`)**:
-   - Se removió el selector global de etiqueta `header` de la regla de ocultamiento y se reemplazó por selectores acotados a la interfaz de la web (`body > #root > div > header`, `body > #root > header`, `header:not(.catalog-header)`).
-   - Se crearon reglas explícitas con prioridad para garantizar que los encabezados del catálogo siempre se rendericen en el PDF:
-     - `.catalog-page header, .catalog-page .catalog-header { display: flex !important; visibility: visible !important; opacity: 1 !important; }`
-     - `.catalog-page header.text-center, .catalog-page .catalog-header-first { display: block !important; visibility: visible !important; opacity: 1 !important; }`
-   - Se configuró `object-fit: contain !important` para los logos de cabecera y pie de página, aislando `object-fit: cover` exclusivamente a las imágenes de productos dentro de los artículos (`.catalog-page article img`).
-
-2. **Identificación Semántica en Plantilla (`components/CatalogPage.tsx`)**:
-   - Se asignaron las clases `catalog-header catalog-header-first` a la portada (Página 1) y `catalog-header catalog-header-page` a las páginas subsiguientes (Páginas 2 a N).
-
----
-
-## Verificación
+### 2. Estado de Compilación y Verificación
 - Cero advertencias ni errores en `tsc --noEmit` y `compile_applet`.
-- Se conservan al 100% las proporciones verticales 3:4 de 6 productos y compactas h-32 de 9 productos.
+- Las fotos vinculadas a variantes se mantienen permanentes en recargas, filtros y sincronizaciones.

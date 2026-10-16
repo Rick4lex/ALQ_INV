@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '../hooks/useAppStore';
-import { ModalState, Product, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements } from '../types';
+import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements } from '../types';
 import { db } from '../db';
 import Dexie from 'dexie';
 import { syncService } from '../services/syncService';
@@ -156,6 +156,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       if (incomingProducts !== null) {
+        // Mapeo preventivo de imageUrls locales existentes para no perder referencias asignadas
+        const currentDbProducts = await db.products.toArray();
+        const localVariantImageMap = new Map<string, string>();
+        currentDbProducts.forEach(p => {
+          (p.variants || []).forEach(v => {
+            if (v.imageUrl && typeof v.imageUrl === 'string' && v.imageUrl.trim()) {
+              localVariantImageMap.set(String(v.id), v.imageUrl.trim());
+            }
+          });
+        });
+
         const normalizedProducts: Product[] = incomingProducts
           .filter((p: any) => p && (p.id || p.title))
           .map((p: any) => {
@@ -180,6 +191,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 price: prod.price ?? '',
                 sku: prod.sku ?? '',
               }];
+            } else {
+              // Normalizar cada variante asegurando la persistencia de imageUrl
+              prod.variants = prod.variants.map((v: any) => {
+                const remoteImageUrl = String(v.imageUrl || v.imagenUrl || v.fotoRef || v.image_url || '').trim();
+                const localImageUrl = localVariantImageMap.get(String(v.id)) || '';
+                const finalImageUrl = remoteImageUrl || localImageUrl;
+                const cleanVariant: Variant = {
+                  id: String(v.id || `${prod.id}-v-${Math.random().toString(36).substring(2, 7)}`),
+                  name: String(v.name || 'Variante'),
+                  stock: Number(v.stock) >= 0 ? Number(v.stock) : 0,
+                  price: typeof v.price === 'number' ? v.price : Number(v.price) || 0,
+                  cost: typeof v.cost === 'number' ? v.cost : Number(v.cost) || 0,
+                  itemCount: Number(v.itemCount) >= 1 ? Number(v.itemCount) : 1,
+                  sku: v.sku ? String(v.sku) : undefined,
+                };
+                if (finalImageUrl) {
+                  cleanVariant.imageUrl = finalImageUrl;
+                }
+                return cleanVariant;
+              });
             }
             return prod as Product;
           });
@@ -187,7 +218,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // CONCILIACIÓN BIDIRECCIONAL:
         // Detectar productos que existían en IndexedDB pero ya no están en Google Sheets (fueron borrados)
         const incomingIds = new Set(normalizedProducts.map(p => String(p.id)));
-        const currentDbProducts = await db.products.toArray();
         const deletedProducts = currentDbProducts.filter(p => !incomingIds.has(String(p.id)));
         const deletedIds = deletedProducts.map(p => p.id);
         const deletedVariantIds = deletedProducts.flatMap(p => (p.variants || []).map(v => v.id));

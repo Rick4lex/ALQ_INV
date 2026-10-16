@@ -677,6 +677,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, format }) =>
                 groupMode={catalogGroupMode} 
                 pageSize={catalogPageSize} 
                 showPrices={catalogShowPrices}
+                showAvailableOnly={catalogOnlyInStock}
                 onlyAvailable={catalogOnlyInStock}
               />
             </div>
