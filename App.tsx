@@ -11,6 +11,7 @@ import { productSortComparator, productPhotoPriorityComparator, hasProductPhoto 
 import FinancialPanel from './components/FinancialPanel';
 import BulkActionBar from './components/BulkActionBar';
 import LoginView from './components/LoginView';
+import MobileBottomNav from './components/MobileBottomNav';
 import { useAuth } from './contexts/AuthContext';
 
 // Lazy load modals to improve initial load time
@@ -182,11 +183,11 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
-      <div className={`no-print print:hidden ${currentView === 'catalog' || user?.role !== 'admin' ? "pb-40 md:pb-24" : ""}`}>
+      <div className={`no-print print:hidden ${currentView === 'catalog' || user?.role !== 'admin' ? "pb-24 md:pb-28" : ""}`}>
         {(currentView === 'catalog' || user?.role !== 'admin') && <Header />}
         <main>
            {currentView === 'catalog' || user?.role !== 'admin' ? (
-            <div className="container mx-auto px-4 py-6">
+            <div className="container mx-auto px-2 sm:px-4 py-3 sm:py-6">
               <FilterBar allTags={allTags} productCount={filteredProducts.length} />
               <ProductDisplay 
                 products={filteredProducts} 
@@ -201,6 +202,7 @@ const App: React.FC = () => {
       {currentView === 'catalog' && !fusionMode && !isSelectionMode && (
         <div className="no-print print:hidden">
           <Footer />
+          <MobileBottomNav />
         </div>
       )}
       {currentView === 'catalog' && isSelectionMode && (

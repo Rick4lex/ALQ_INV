@@ -249,6 +249,30 @@
         scrollbar-width: none;
       }
 
+      /* Animaciones móviles nativas para drawers y bottom sheets */
+      @keyframes slideUp {
+        from {
+          transform: translateY(100%);
+          opacity: 0.6;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      .animate-slide-up {
+        animation: slideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      .animate-fade-in {
+        animation: fadeIn 0.2s ease-out forwards;
+      }
     </style>
 </head>
 <body class="bg-gray-900 text-white">

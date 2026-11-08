@@ -18,31 +18,61 @@ const Header: React.FC = () => {
   const isSpecialMode = fusionMode || selectedProductIds.size > 0;
 
   return (
-    <header className="sticky top-0 z-40 bg-gray-900/90 backdrop-blur-lg border-b border-purple-500/20 p-4 shadow-md">
-      <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
-        <a href="https://rick4lex.github.io/ALQUIMA/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-           <Sparkles className="h-8 w-8 text-purple-400" />
-           <h1 className="text-xl md:text-2xl font-bold text-white whitespace-nowrap">Alquima Mizu</h1>
+    <header className="sticky top-0 z-40 bg-gray-900/90 backdrop-blur-lg border-b border-purple-500/20 px-3 py-2 sm:p-4 shadow-md">
+      <div className="container mx-auto flex items-center justify-between gap-2 sm:gap-4">
+        {/* Brand / Logo */}
+        <a href="https://rick4lex.github.io/ALQUIMA/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 flex-shrink-0">
+           <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-purple-400" />
+           <h1 className="text-base sm:text-xl md:text-2xl font-bold text-white whitespace-nowrap">
+             <span className="sm:hidden">Alquima</span>
+             <span className="hidden sm:inline">Alquima Mizu</span>
+           </h1>
         </a>
         
-        <div className="flex items-center gap-2">
+        {/* Controles de vista (Grid / List) */}
+        <div className="flex items-center gap-1">
           <button
             onClick={() => updatePreference('viewMode', 'grid')}
-            className="p-2 rounded-md transition-colors text-gray-400 hover:bg-gray-700 hover:text-white"
+            className="p-1.5 sm:p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-700 hover:text-white"
             aria-label="Vista de cuadrícula"
           >
-            <LayoutGrid size={20} />
+            <LayoutGrid size={18} />
           </button>
           <button
             onClick={() => updatePreference('viewMode', 'list')}
-            className="p-2 rounded-md transition-colors text-gray-400 hover:bg-gray-700 hover:text-white"
+            className="p-1.5 sm:p-2 rounded-lg transition-colors text-gray-400 hover:bg-gray-700 hover:text-white"
             aria-label="Vista de lista"
           >
-            <List size={20} />
+            <List size={18} />
           </button>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        {/* Acceso Rápido Móvil (Solo Rol y Bloqueo) */}
+        <div className="flex md:hidden items-center gap-1.5">
+          {user && (
+            <>
+              <div 
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
+                  user.role === 'admin'
+                    ? 'bg-purple-950/80 text-purple-300 border-purple-500/40'
+                    : 'bg-indigo-950/80 text-indigo-300 border-indigo-500/40'
+                }`}
+              >
+                <span>{user.role}</span>
+              </div>
+              <button
+                onClick={lock}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-amber-300 transition-colors"
+                title="Bloquear pantalla"
+              >
+                <Lock size={15} />
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Acciones de Escritorio (Ocultas en Móvil) */}
+        <div className="hidden md:flex items-center gap-2 flex-wrap justify-end">
            {user?.role === 'admin' && (
              <button onClick={() => setModal({ type: 'tools' })} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-3 sm:px-4 rounded-lg transition-transform transform hover:scale-105">
               <Wrench size={18} />
@@ -81,7 +111,7 @@ const Header: React.FC = () => {
             </>
            )}
 
-           {/* Badge de Rol y Acciones de Seguridad */}
+           {/* Badge de Rol y Acciones de Seguridad en Escritorio */}
            {user && (
              <div className="flex items-center gap-1.5 pl-2 ml-1 border-l border-gray-700/80">
                <div 

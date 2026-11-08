@@ -9,7 +9,7 @@ const Footer: React.FC = () => {
   const isAdmin = user?.role === 'admin';
 
   return (
-    <footer className="fixed bottom-0 left-0 right-0 bg-gray-900/80 backdrop-blur-lg border-t border-purple-500/30 p-4 z-20">
+    <footer className="hidden md:block fixed bottom-0 left-0 right-0 bg-gray-900/80 backdrop-blur-lg border-t border-purple-500/30 p-4 z-20">
       <div className="container mx-auto flex items-center justify-center gap-2 sm:gap-4 flex-wrap">
         {isAdmin && (
           <button onClick={() => setModal({ type: 'export', format: 'json' })} className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-brand-indigo hover:bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">

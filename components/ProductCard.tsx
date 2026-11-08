@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Product, ViewMode } from '../types';
-import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History, CheckCircle, Square, CheckSquare, ChevronDown } from 'lucide-react';
+import { Pencil, Trash2, ImageOff, ZoomIn, EyeOff, Eye, History, CheckCircle, Square, CheckSquare, ChevronDown, X } from 'lucide-react';
 import { formatPrice, formatCurrency, getPricedVariants, getProductPriceInfo } from '../utils';
 import { useAppContext } from '../contexts/AppContext';
 
@@ -43,13 +44,13 @@ const ProductCard: React.FC<ProductCardProps> = ({
       isIgnoredView ? 'border-yellow-500/40 hover:shadow-yellow-500/20 hover:border-yellow-500/60' : 
       'border-purple-500/20 hover:shadow-purple-500/20 hover:border-purple-500/40'
     }
-    ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row items-center'}
+    ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row items-stretch'}
   `;
 
   const imageContainerClasses = viewMode === 'grid' 
     ? 'w-full h-56 rounded-t-xl overflow-hidden' 
-    : 'w-28 h-28 rounded-l-xl overflow-hidden flex-shrink-0';
-  const contentClasses = `flex flex-col flex-grow ${viewMode === 'grid' ? 'p-4' : 'p-3'}`;
+    : 'w-28 sm:w-36 self-stretch rounded-l-xl overflow-hidden flex-shrink-0';
+  const contentClasses = `flex flex-col justify-between flex-grow ${viewMode === 'grid' ? 'p-4' : 'p-3'}`;
 
   const handleCardClick = () => {
     if (isFusionMode && onSelectForFusion) onSelectForFusion(product.id);
@@ -60,8 +61,18 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
   return (
     <div className={cardClasses} onClick={handleCardClick}>
-      {isSelectedForFusion && (
-        <div className="absolute top-2 right-2 z-10 bg-green-600 text-white rounded-full p-1"><CheckCircle size={20} /></div>
+      {isFusionMode && (
+        <div className="absolute top-2 right-2 z-10 p-1 pointer-events-none">
+          {isSelectedForFusion ? (
+            <div className="bg-green-600 text-white rounded-full p-1 shadow-lg ring-2 ring-white/50">
+              <CheckCircle size={20} />
+            </div>
+          ) : (
+            <div className="bg-gray-900/80 border border-green-500/70 text-green-400 rounded-md p-1 backdrop-blur-xs shadow">
+              <Square size={18} />
+            </div>
+          )}
+        </div>
       )}
       {isSelectionMode && (
           <div className="absolute top-2 left-2 z-10 text-white p-1" onClick={(e) => { e.stopPropagation(); onToggleSelection?.(product.id); }}>
@@ -141,17 +152,118 @@ const ProductCard: React.FC<ProductCardProps> = ({
               {/* Lista desplegable flotante por encima de la tarjeta para evitar recortes */}
               {showVariantsDropdown && pricedVariants.length > 1 && (
                 <>
+                  {/* 1. Vista Móvil (< md): Bottom Sheet Drawer portaleado directamente a document.body */}
+                  {typeof document !== 'undefined' && createPortal(
+                    <div 
+                      className="md:hidden fixed inset-0 z-[100] flex flex-col justify-end animate-fade-in"
+                      onClick={() => setShowVariantsDropdown(false)}
+                    >
+                      {/* Backdrop oscuro que cubre toda la pantalla del teléfono */}
+                      <div className="fixed inset-0 bg-black/80 backdrop-blur-xs" />
+
+                      {/* Cajón que se desliza desde el borde inferior de la pantalla */}
+                      <div 
+                        onClick={(e) => e.stopPropagation()}
+                        className="relative z-10 bg-gray-900 border-t border-purple-500/40 rounded-t-3xl p-4 shadow-2xl animate-slide-up max-h-[75vh] flex flex-col pb-8 safe-area-pb"
+                      >
+                        {/* Indicador de arrastre / barra superior */}
+                        <div 
+                          className="w-12 h-1.5 bg-gray-600 hover:bg-gray-500 rounded-full mx-auto mb-3 cursor-pointer" 
+                          onClick={() => setShowVariantsDropdown(false)}
+                        />
+                        
+                        <div className="flex items-center justify-between pb-3 mb-2 border-b border-gray-800 flex-shrink-0">
+                          <div className="min-w-0 pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+                              <span className="text-sm font-bold text-gray-100 uppercase tracking-wider truncate">
+                                {product.title}
+                              </span>
+                            </div>
+                            <span className="text-xs text-purple-300 block mt-0.5 font-medium">
+                              {pricedVariants.length} variantes disponibles
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowVariantsDropdown(false)}
+                            className="p-1.5 rounded-full text-gray-400 hover:text-white bg-gray-800 transition-colors flex-shrink-0"
+                            aria-label="Cerrar variantes"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+
+                        <div className="flex flex-col gap-2 overflow-y-auto pr-1 py-1 flex-grow">
+                          {pricedVariants.map(v => {
+                            const isOutOfStock = v.stock <= 0;
+                            const isThisVariantImageActive = Boolean(v.imageUrl && activeVariantImage === v.imageUrl);
+                            return (
+                              <div 
+                                key={v.id} 
+                                onClick={(e) => {
+                                  if (v.imageUrl) {
+                                    e.stopPropagation();
+                                    setImgError(false);
+                                    setActiveVariantImage(prev => prev === v.imageUrl ? null : v.imageUrl!);
+                                  }
+                                }}
+                                style={{ backgroundColor: isOutOfStock ? '#181f2c' : '#1f2937' }}
+                                className={`flex items-center justify-between text-xs py-3 px-3.5 rounded-2xl border transition-all ${
+                                  v.imageUrl ? 'cursor-pointer active:scale-[0.99]' : ''
+                                } ${
+                                  isThisVariantImageActive ? 'ring-2 ring-purple-400 border-purple-500 bg-purple-950/60' : 'border-gray-700/80'
+                                } ${
+                                  isOutOfStock ? 'opacity-70' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 truncate pr-2">
+                                  {v.imageUrl && (
+                                    <img
+                                      src={v.imageUrl}
+                                      alt={v.name}
+                                      className="w-9 h-9 rounded-xl object-cover border border-purple-400/50 flex-shrink-0"
+                                    />
+                                  )}
+                                  <div className="truncate">
+                                    <span className={`font-semibold text-sm block truncate ${isOutOfStock ? 'text-gray-400' : 'text-white'}`}>
+                                      {v.name}
+                                    </span>
+                                    <span className={`text-[11px] font-medium ${isOutOfStock ? 'text-red-400' : 'text-gray-400'}`}>
+                                      {isOutOfStock ? 'Sin stock (0)' : `Stock: ${v.stock}`}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className={`tabular-nums whitespace-nowrap text-sm font-bold ${
+                                  isOutOfStock 
+                                    ? 'text-gray-500 line-through' 
+                                    : 'text-green-400'
+                                }`}>
+                                  {formatCurrency(v.price!)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+
+                  {/* 2. Backdrop Desktop (>= md) */}
                   <div 
-                    className="fixed inset-0 z-40" 
+                    className="hidden md:block fixed inset-0 z-40" 
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowVariantsDropdown(false);
                     }} 
                   />
+
+                  {/* 2. Vista Desktop (>= md): Menú Flotante Compacto */}
                   <div 
                     onClick={(e) => e.stopPropagation()}
                     style={{ backgroundColor: '#111827' }}
-                    className="absolute left-0 top-full mt-1.5 w-72 max-w-[calc(100vw-2.5rem)] bg-gray-950 border border-purple-500/70 rounded-xl p-3 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                    className="hidden md:block absolute left-0 top-full mt-1.5 w-72 bg-gray-950 border border-purple-500/70 rounded-xl p-3 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
                   >
                     <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-2">
                       <span className="text-[11px] font-bold text-gray-200 uppercase tracking-wider flex items-center gap-1.5">
