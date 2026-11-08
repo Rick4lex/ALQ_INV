@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '../hooks/useAppStore';
-import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements } from '../types';
+import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements, BatchSaleItem, SaleReceiptPayload } from '../types';
 import { db } from '../db';
 import Dexie from 'dexie';
 import { syncService } from '../services/syncService';
@@ -55,9 +55,11 @@ interface AppContextType extends AppStoreType {
   handleIgnoredChange: (show: boolean) => void;
   handleProductDelete: (productId: string) => Promise<void>;
   handleSaveMovement: (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => void;
+  handleBatchSale: (items: BatchSaleItem[], ticketId: string, notes?: string, recipientEmail?: string) => Promise<boolean>;
   handleManualMovementSave: (movement: Omit<ManualMovement, 'id'>) => void;
   handleIgnoreProduct: (productId: string) => Promise<void>;
   handleRestoreProduct: (productToRestore: Product) => void;
+  confirmRestoreProduct: (productId: string, assignedCategory: string) => Promise<void>;
   handleCategorySave: (newCategory: string) => Promise<void> | void;
   handleCategoryUpdate: (oldCategory: string, newCategoryRaw: string) => Promise<void>;
   handleCategoryDelete: (categoryToDelete: string, reassignToCategory?: string) => Promise<void>;
@@ -110,7 +112,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         movements: groupedMovements,
         timestamp: Date.now()
       };
-      await syncService.pushRemoteData(payload);
+
+      let token: string | undefined;
+      try {
+        const stored = sessionStorage.getItem('alquima_mizu_session');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          token = parsed.token;
+        }
+      } catch {}
+
+      await syncService.pushRemoteData(payload, token);
     } catch (error) {
       console.warn("Fallo al guardar en Sheets en segundo plano:", error);
     }
@@ -255,10 +267,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           await db.allCategories.clear();
           await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
         } else {
-          newCats = [...new Set([...allCategories, ...loadedCategories])];
+          newCats = [...new Set([...loadedCategories])];
+          await db.allCategories.clear();
           await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
         }
         setAllCategories(newCats);
+
+        // Integración con Sheets: detectar productos sin título o sin categoría y considerarlos ocultos
+        const hiddenFromSheets = normalizedProducts
+          .filter(p => !p.title || !p.title.trim() || !p.category || !p.category.trim())
+          .map(p => p.id);
+        if (hiddenFromSheets.length > 0) {
+          const mergedIgnored = [...new Set([...ignoredProductIds, ...hiddenFromSheets])];
+          await db.ignoredProductIds.bulkPut(hiddenFromSheets.map(id => ({ id })));
+          setIgnoredProductIds(mergedIgnored);
+        }
 
         if (incomingMovements) {
           const flatMovements = Object.values(incomingMovements).flat();
@@ -458,6 +481,111 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setProducts(prev => prev?.map(p => p.id === productId ? updatedProduct : p) || null);
       triggerRemoteSave();
   }, [products, setProducts, addMovement, triggerRemoteSave]);
+
+  const handleBatchSale = useCallback(async (
+    saleItems: BatchSaleItem[],
+    ticketId: string,
+    notes?: string,
+    recipientEmail?: string
+  ): Promise<boolean> => {
+    if (!products || saleItems.length === 0) return false;
+
+    const productUpdatesMap = new Map<string, Product>();
+    const createdMovements: Movement[] = [];
+    const timestamp = Date.now();
+
+    for (const item of saleItems) {
+      const currentProduct = productUpdatesMap.get(item.productId) || products.find(p => p.id === item.productId);
+      if (!currentProduct) continue;
+
+      const variant = currentProduct.variants.find(v => v.id === item.variantId);
+      if (!variant) continue;
+
+      const newStock = Math.max(0, variant.stock - item.quantity);
+      const updatedProduct: Product = {
+        ...currentProduct,
+        variants: currentProduct.variants.map(v => v.id === item.variantId ? { ...v, stock: newStock } : v)
+      };
+      productUpdatesMap.set(item.productId, updatedProduct);
+
+      const mov: Movement = {
+        id: `mov-${timestamp}-${Math.random().toString(36).substring(2, 7)}`,
+        variantId: item.variantId,
+        timestamp,
+        type: 'Venta',
+        change: -item.quantity,
+        newStock,
+        price: item.unitPrice,
+        cost: typeof variant.cost === 'number' ? variant.cost : 0,
+        ticketId,
+        originalPrice: item.originalPrice,
+        discount: item.discount,
+        notes: notes || `Venta Ticket #${ticketId}`
+      };
+      createdMovements.push(mov);
+    }
+
+    const updatedProductsArray = Array.from(productUpdatesMap.values());
+    if (updatedProductsArray.length === 0) return false;
+
+    // Transacción atómica en Dexie
+    await (db as Dexie).transaction('rw', db.products, db.movements, async () => {
+      await db.products.bulkPut(updatedProductsArray);
+      await db.movements.bulkPut(createdMovements);
+    });
+
+    // Actualizar estado de React
+    setProducts(prev => {
+      if (!prev) return null;
+      const updatedMap = new Map(updatedProductsArray.map(p => [p.id, p]));
+      return prev.map(p => updatedMap.get(p.id) || p);
+    });
+
+    setMovements(prev => {
+      const next = { ...prev };
+      createdMovements.forEach(m => {
+        if (!next[m.variantId]) next[m.variantId] = [];
+        next[m.variantId] = [...next[m.variantId], m];
+      });
+      return next;
+    });
+
+    const totalSoldUnits = saleItems.reduce((acc, i) => acc + i.quantity, 0);
+    const totalAmount = saleItems.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0);
+    await logAction('cloud_sync', `Venta Rápida: Ticket #${ticketId} (${totalSoldUnits} unid., total: $${totalAmount.toLocaleString('es-CO')})`);
+
+    // Sincronizar hacia Google Sheets
+    triggerRemoteSave();
+
+    // Enviar comprobante por correo si se especificó
+    if (recipientEmail && recipientEmail.trim()) {
+      try {
+        const subtotalSum = saleItems.reduce((acc, i) => acc + (i.quantity * i.originalPrice), 0);
+        const discountSum = saleItems.reduce((acc, i) => acc + (i.quantity * i.discount), 0);
+        const receipt: SaleReceiptPayload = {
+          ticketId,
+          timestamp,
+          items: saleItems.map(i => ({
+            title: i.productTitle,
+            variant: i.variantName,
+            quantity: i.quantity,
+            originalPrice: i.originalPrice,
+            unitPrice: i.unitPrice,
+            subtotal: i.quantity * i.unitPrice
+          })),
+          subtotal: subtotalSum,
+          discountAmount: discountSum,
+          total: totalAmount,
+          notes
+        };
+        await syncService.sendSaleReceipt(receipt, recipientEmail.trim());
+      } catch (err) {
+        console.warn("Fallo el envío de comprobante por correo:", err);
+      }
+    }
+
+    return true;
+  }, [products, setProducts, setMovements, logAction, triggerRemoteSave]);
   
   const handleManualMovementSave = useCallback(async (movement: Omit<ManualMovement, 'id'>) => {
       const newMovement: ManualMovement = { ...movement, id: `manual-${Date.now()}` };
@@ -467,32 +595,80 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [setManualMovements, setModal]);
 
   const handleIgnoreProduct = useCallback(async (productId: string) => {
-      if (ignoredProductIds.includes(productId)) return;
       const productToIgnore = products?.find(p => p.id === productId);
       if (!productToIgnore) return;
 
-      const newIgnored = [...ignoredProductIds, productId];
-      await db.ignoredProductIds.add({ id: productId });
-      setIgnoredProductIds(newIgnored);
-      await logAction('product_ignore', `Producto ocultado: "${productToIgnore.title}" (ID: ${productId})`);
-  }, [ignoredProductIds, products, setIgnoredProductIds, logAction]);
+      const oldCategory = productToIgnore.category;
+      const updatedProduct: Product = { ...productToIgnore, category: '' };
 
-  const handleRestoreProduct = useCallback(async (productToRestore: Product) => {
+      // 1. Guardar producto con categoría vacía en Dexie y en memoria
+      await db.products.put(updatedProduct);
+      setProducts(prev => prev ? prev.map(p => p.id === productId ? updatedProduct : p) : null);
+
+      // 2. Registrar en ignoredProductIds
+      if (!ignoredProductIds.includes(productId)) {
+        const newIgnored = [...ignoredProductIds, productId];
+        await db.ignoredProductIds.add({ id: productId });
+        setIgnoredProductIds(newIgnored);
+      }
+
+      // 3. Si la categoría anterior ya no tiene otros productos activos, retirarla de allCategories
+      if (oldCategory && products) {
+        const otherActiveProductsWithCategory = products.filter(
+          p => p.id !== productId && p.category === oldCategory && !ignoredProductIds.includes(p.id)
+        );
+        if (otherActiveProductsWithCategory.length === 0) {
+          const updatedCategories = allCategories.filter(c => c !== oldCategory);
+          await db.allCategories.delete(oldCategory);
+          setAllCategories(updatedCategories);
+        }
+      }
+
+      await logAction('product_ignore', `Producto ocultado (categoría liberada): "${productToIgnore.title}" (ID: ${productId})`);
+      
+      // 4. Sincronizar inmediatamente a Google Sheets para vaciar la celda Categoría
+      triggerRemoteSave();
+  }, [ignoredProductIds, products, allCategories, setProducts, setIgnoredProductIds, setAllCategories, logAction, triggerRemoteSave]);
+
+  const handleRestoreProduct = useCallback((productToRestore: Product) => {
+    // Abrir modal con asignación obligatoria de categoría
     setModal({
-        type: 'confirm',
-        title: 'Restaurar Producto',
-        message: `¿Estás seguro de que quieres restaurar el producto "${productToRestore.title}"?`,
-        onConfirm: async () => {
-            const newIgnored = ignoredProductIds.filter(id => id !== productToRestore.id);
-            await db.ignoredProductIds.delete(productToRestore.id);
-            setIgnoredProductIds(newIgnored);
-            await logAction('product_restore', `Producto restaurado: "${productToRestore.title}" (ID: ${productToRestore.id})`);
-            setModal(null);
-        },
-        confirmText: 'Restaurar',
-        confirmClass: 'bg-yellow-500 hover:bg-yellow-600 text-white',
+      type: 'restore-product',
+      product: productToRestore
     });
-  }, [ignoredProductIds, setIgnoredProductIds, logAction, setModal]);
+  }, [setModal]);
+
+  const confirmRestoreProduct = useCallback(async (productId: string, assignedCategory: string) => {
+    const cleanCategory = assignedCategory.toLowerCase().replace(/\s+/g, '-').trim();
+    if (!cleanCategory) return;
+
+    const productToRestore = products?.find(p => p.id === productId);
+    if (!productToRestore) return;
+
+    const updatedProduct: Product = { ...productToRestore, category: cleanCategory };
+
+    // 1. Guardar producto con la nueva categoría asignada
+    await db.products.put(updatedProduct);
+    setProducts(prev => prev ? prev.map(p => p.id === productId ? updatedProduct : p) : null);
+
+    // 2. Remover de ignoredProductIds
+    const newIgnored = ignoredProductIds.filter(id => id !== productId);
+    await db.ignoredProductIds.delete(productId);
+    setIgnoredProductIds(newIgnored);
+
+    // 3. Asegurar que la categoría exista en allCategories
+    if (!allCategories.includes(cleanCategory)) {
+      const newCats = [...allCategories, cleanCategory];
+      await db.allCategories.put({ id: cleanCategory });
+      setAllCategories(newCats);
+    }
+
+    await logAction('product_restore', `Producto restaurado con categoría "${cleanCategory}": "${productToRestore.title}" (ID: ${productId})`);
+    
+    // 4. Sincronizar a Google Sheets para escribir la nueva categoría en la fila
+    triggerRemoteSave();
+    setModal(null);
+  }, [products, ignoredProductIds, allCategories, setProducts, setIgnoredProductIds, setAllCategories, logAction, triggerRemoteSave, setModal]);
   
   const handleCategorySave = useCallback(async (newCategoryRaw: string) => {
     const newCategory = newCategoryRaw.toLowerCase().replace(/\s+/g, '-').trim();
@@ -794,19 +970,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setModal({
         type: 'confirm',
         title: 'Ocultar Productos',
-        message: `¿Estás seguro de que quieres ocultar ${selectedProductIds.size} productos seleccionados?`,
+        message: `¿Estás seguro de que quieres ocultar ${selectedProductIds.size} productos seleccionados? Sus categorías serán liberadas en Google Sheets.`,
         onConfirm: async () => {
-            const newIgnoredIds = [...ignoredProductIds, ...Array.from(selectedProductIds)];
-            await db.ignoredProductIds.bulkPut(Array.from(selectedProductIds).map(id => ({ id })));
+            const idsArray = Array.from(selectedProductIds);
+            const newIgnoredIds = [...new Set([...ignoredProductIds, ...idsArray])];
+            await db.ignoredProductIds.bulkPut(idsArray.map(id => ({ id })));
             setIgnoredProductIds(newIgnoredIds);
+
+            if (products) {
+              const updatedProducts = products.map(p => {
+                if (selectedProductIds.has(p.id)) {
+                  return { ...p, category: '' };
+                }
+                return p;
+              });
+              const modifiedProducts = updatedProducts.filter(p => selectedProductIds.has(p.id));
+              await db.products.bulkPut(modifiedProducts);
+              setProducts(updatedProducts);
+            }
+
             await logAction('bulk_ignore', `Se ocultaron ${selectedProductIds.size} productos en lote.`);
             setModal(null);
             setSelectedProductIds(new Set());
+            triggerRemoteSave();
         },
         confirmText: 'Sí, Ocultar',
         confirmClass: 'bg-yellow-500 hover:bg-yellow-600 text-white',
     });
-  }, [selectedProductIds, ignoredProductIds, setIgnoredProductIds, logAction, setModal, setSelectedProductIds]);
+  }, [selectedProductIds, ignoredProductIds, products, setIgnoredProductIds, setProducts, logAction, setModal, setSelectedProductIds, triggerRemoteSave]);
 
   const handleBulkDelete = useCallback(() => {
     setModal({
@@ -859,21 +1050,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     fusionMode, setFusionMode, selectedForFusion, setSelectedForFusion, selectedProductIds,
     setSelectedProductIds, selectedTags, setSelectedTags, handleTextLoad, handleRestoreBackup, handleReset,
     updatePreference, handleIgnoredChange, handleProductDelete, handleSaveMovement,
-    handleManualMovementSave, handleIgnoreProduct, handleRestoreProduct, handleCategorySave,
+    handleManualMovementSave, handleIgnoreProduct, handleRestoreProduct, confirmRestoreProduct, handleCategorySave,
     handleCategoryUpdate, handleCategoryDelete,
     handleBackupDownload, handleCsvImport, handleRepairDuplicateVariantIds, handleProductMerge,
     handleImageClick, toggleFusionSelection, startFusion, handleBulkEditSave,
     handleBulkIgnore, handleBulkDelete, changeFullscreenImage,
-    handleMultipleMovementsDelete,
+    handleMultipleMovementsDelete, handleBatchSale,
     isSyncing, handleManualSync, triggerRemoteSave, isAnyModalOpen, handleProductSave,
   }), [
     store, modal, fullscreenData, currentView, fusionMode, selectedForFusion, 
     selectedProductIds, selectedTags, handleTextLoad, handleRestoreBackup, handleReset, updatePreference, 
     handleIgnoredChange, handleProductDelete, handleSaveMovement, handleManualMovementSave, 
-    handleIgnoreProduct, handleRestoreProduct, handleCategorySave, handleCategoryUpdate, handleCategoryDelete, handleBackupDownload, 
+    handleIgnoreProduct, handleRestoreProduct, confirmRestoreProduct, handleCategorySave, handleCategoryUpdate, handleCategoryDelete, handleBackupDownload, 
     handleCsvImport, handleRepairDuplicateVariantIds, handleProductMerge, handleImageClick, 
     toggleFusionSelection, startFusion, handleBulkEditSave, handleBulkIgnore, 
-    handleBulkDelete, changeFullscreenImage, handleMultipleMovementsDelete,
+    handleBulkDelete, changeFullscreenImage, handleMultipleMovementsDelete, handleBatchSale,
     isSyncing, handleManualSync, triggerRemoteSave, isAnyModalOpen, handleProductSave
   ]);
 

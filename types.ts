@@ -10,6 +10,9 @@ export interface Movement {
   notes?: string;
   price?: number; // Price per item at the time of movement
   cost?: number;  // Cost per item at the time of movement
+  ticketId?: string; // ID del ticket de venta agrupada o compra
+  originalPrice?: number; // Precio de lista original antes de descuento
+  discount?: number; // Descuento monetario aplicado por unidad
 }
 
 export interface ManualMovement {
@@ -89,6 +92,7 @@ export type ModalState =
   | { type: 'add-category' }
   | { type: 'movements'; product: Product }
   | { type: 'manual-movement' }
+  | { type: 'quick-sale' }
   | { type: 'tools' }
   | { type: 'fusion'; products: [Product, Product] }
   | { type: 'audit-log' }
@@ -96,6 +100,7 @@ export type ModalState =
   | { type: 'import-csv' }
   | { type: 'load-from-text' }
   | { type: 'restore-backup' }
+  | { type: 'restore-product'; product: Product }
   | { 
       type: 'confirm'; 
       title: string; 
@@ -104,3 +109,48 @@ export type ModalState =
       confirmText?: string;
       confirmClass?: string;
     };
+
+export interface BatchSaleItem {
+  productId: string;
+  variantId: string;
+  quantity: number;
+  unitPrice: number;
+  originalPrice: number;
+  discount: number;
+  productTitle: string;
+  variantName: string;
+  series?: string;
+}
+
+export interface SaleReceiptPayload {
+  ticketId: string;
+  timestamp: number;
+  items: {
+    title: string;
+    variant: string;
+    quantity: number;
+    originalPrice: number;
+    unitPrice: number;
+    subtotal: number;
+  }[];
+  subtotal: number;
+  discountAmount: number;
+  discountPercent?: number;
+  total: number;
+  notes?: string;
+}
+
+export type UserRole = 'admin' | 'vendedor';
+
+export interface AuthUser {
+  role: UserRole;
+  email?: string;
+}
+
+export interface AuthState {
+  user: AuthUser | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  isLocked: boolean;
+  expiresAt: number | null;
+}

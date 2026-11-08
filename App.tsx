@@ -10,6 +10,8 @@ import { X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { productSortComparator, productPhotoPriorityComparator, hasProductPhoto } from './utils';
 import FinancialPanel from './components/FinancialPanel';
 import BulkActionBar from './components/BulkActionBar';
+import LoginView from './components/LoginView';
+import { useAuth } from './contexts/AuthContext';
 
 // Lazy load modals to improve initial load time
 const ProductFormModal = lazy(() => import('./components/ProductFormModal'));
@@ -25,8 +27,11 @@ const DataImportModal = lazy(() => import('./components/DataImportModal'));
 const ConfirmModal = lazy(() => import('./components/ConfirmModal'));
 const LoadFromTextModal = lazy(() => import('./components/LoadFromTextModal'));
 const RestoreModal = lazy(() => import('./components/RestoreModal'));
+const QuickSaleModal = lazy(() => import('./components/QuickSaleModal'));
+const RestoreProductModal = lazy(() => import('./components/RestoreProductModal'));
 
 const App: React.FC = () => {
+  const { user, isAuthenticated, isLocked, isLoading } = useAuth();
   useSilentSync(30000);
 
   const {
@@ -64,9 +69,11 @@ const App: React.FC = () => {
     const showIgnored = !!preferences.showIgnoredOnly;
     
     return products.filter(product => {
-      const matchesIgnoredStatus = showIgnored
-        ? ignoredProductIds.includes(product.id)
-        : !ignoredProductIds.includes(product.id);
+      const hasValidTitle = Boolean(product.title && product.title.trim().length > 0);
+      const hasValidCategory = Boolean(product.category && product.category.trim().length > 0);
+      const isHidden = !hasValidTitle || !hasValidCategory || ignoredProductIds.includes(product.id);
+
+      const matchesIgnoredStatus = showIgnored ? isHidden : !isHidden;
       
       if (!matchesIgnoredStatus) return false;
       if (fusionMode || selectedProductIds.size > 0) return true;
@@ -88,6 +95,19 @@ const App: React.FC = () => {
     }).sort(preferences.photoFilter === 'photos_first' ? productPhotoPriorityComparator : productSortComparator);
   }, [products, preferences, ignoredProductIds, fusionMode, selectedTags, selectedProductIds]);
   
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950 text-white">
+        <Loader2 className="animate-spin h-10 w-10 text-purple-400" />
+      </div>
+    );
+  }
+
+  // Si no está autenticado o la pantalla está bloqueada por inactividad
+  if (!isAuthenticated || isLocked) {
+    return <LoginView />;
+  }
+
   if (isMigrating) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 p-4">
@@ -127,7 +147,7 @@ const App: React.FC = () => {
       case 'ignore': return <ConfirmModal 
                                 {...commonProps}
                                 title="Confirmar Ocultar Producto"
-                                message={<>¿Estás seguro de que quieres ocultar el producto "<strong>{modal.product.title}</strong>"? El producto no aparecerá en la vista principal. Podrás verlo y restaurarlo desde la vista de 'Ocultos'.</>}
+                                message={<>¿Estás seguro de que quieres ocultar el producto "<strong>{modal.product.title}</strong>"? Su categoría quedará liberada en Google Sheets. Podrás ver y restaurar el producto asignándole una categoría desde la vista de 'Ocultos'.</>}
                                 onConfirm={async () => {
                                     await handleIgnoreProduct(modal.product.id);
                                     setModal(null);
@@ -139,13 +159,15 @@ const App: React.FC = () => {
       case 'add-category': return <AddCategoryModal {...commonProps} />;
       case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} />;
       case 'manual-movement': return <ManualMovementModal {...commonProps} />;
-      case 'tools': return <ToolsModal {...commonProps} />;
+      case 'quick-sale': return <QuickSaleModal {...commonProps} />;
+      case 'tools': return user?.role === 'admin' ? <ToolsModal {...commonProps} /> : null;
       case 'fusion': return <FusionModal {...commonProps} productsToFuse={modal.products} />;
       case 'audit-log': return <AuditLogModal {...commonProps} />;
       case 'bulk-edit': return <BulkEditModal {...commonProps} productsCount={modal.productsCount} />;
       case 'import-csv': return <DataImportModal {...commonProps} />;
       case 'load-from-text': return <LoadFromTextModal {...commonProps} />;
       case 'restore-backup': return <RestoreModal {...commonProps} onRestore={handleRestoreBackup} />;
+      case 'restore-product': return <RestoreProductModal {...commonProps} product={modal.product} />;
       case 'confirm': return <ConfirmModal 
                                 {...commonProps} 
                                 title={modal.title}
@@ -160,10 +182,10 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-indigo-900 font-sans">
-      <div className={`no-print print:hidden ${currentView === 'catalog' ? "pb-40 md:pb-24" : ""}`}>
-        {currentView === 'catalog' && <Header />}
+      <div className={`no-print print:hidden ${currentView === 'catalog' || user?.role !== 'admin' ? "pb-40 md:pb-24" : ""}`}>
+        {(currentView === 'catalog' || user?.role !== 'admin') && <Header />}
         <main>
-           {currentView === 'catalog' ? (
+           {currentView === 'catalog' || user?.role !== 'admin' ? (
             <div className="container mx-auto px-4 py-6">
               <FilterBar allTags={allTags} productCount={filteredProducts.length} />
               <ProductDisplay 

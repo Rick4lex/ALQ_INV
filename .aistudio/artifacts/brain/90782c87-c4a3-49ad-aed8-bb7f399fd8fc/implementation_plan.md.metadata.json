@@ -1,6 +1,6 @@
 {
-  "summary": "Implementación de la Fase 2 completada:\n1. En contexts/AppContext.tsx, se actualizó la función handleManualSync para normalizar y preservar la propiedad imageUrl de cada variante.\n2. Soporte multiformato: Reconoce campos remotos de Sheets tales como imageUrl, imagenUrl, fotoRef o image_url.\n3. Conciliación y protección local: Mapea previamente los imageUrls de variantes existentes en Dexie/IndexedDB para que, si la sincronización remota aún no incluye esa columna, las referencias fotográficas asignadas localmente en la app NO se borren ni se pierdan.\n4. Persistencia en base de datos: Al actualizar IndexedDB mediante bulkPut(normalizedProducts), cada variante conserva su imageUrl intacto para su uso permanente en la tienda web y en el catálogo PDF.",
-  "updatedAt": "2026-10-16T04:16:00.701147402Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Plan de implementación detallado para el sistema de autenticación, roles (Admin y Vendedor) y bloqueo por inactividad utilizando Google Apps Script como emisor de tokens temporales, compatible con las limitaciones de GitHub Pages. Incluye el código paso a paso para Apps Script y el diseño de la pantalla de Login con el logo oficial de Alquima Mizu.",
+  "updatedAt":  "2026-11-08T01:05:16.390080522Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

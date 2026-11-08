@@ -19,11 +19,12 @@ export const syncService = {
   },
 
   // PUSH: Enviar datos locales hacia Sheets
-  async pushRemoteData(fullState: any) {
+  async pushRemoteData(fullState: any, token?: string) {
     try {
       // Usamos text/plain para evadir el OPTIONS preflight error (CORS en Apps Script)
       const payload = {
         action: 'FULL_SYNC',
+        token,
         data: fullState,
         // Compatibilidad: también incluir propiedades de nivel superior
         ...(typeof fullState === 'object' && fullState !== null ? fullState : {})
@@ -50,6 +51,73 @@ export const syncService = {
       return true;
     } catch (error) {
       console.error('Error enviando datos remotos a Google Sheets:', error);
+      throw error;
+    }
+  },
+
+  // AUTH: Validar credenciales y obtener token de sesión firmado desde Apps Script
+  async login(pin: string, requestedRole?: 'admin' | 'vendedor') {
+    const cleanPin = pin.trim();
+    try {
+      const payload = {
+        action: 'LOGIN',
+        pin: cleanPin,
+        role: requestedRole,
+        timestamp: Date.now()
+      };
+
+      const response = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      if (result && typeof result === 'object' && typeof result.success === 'boolean') {
+        return result;
+      }
+      return {
+        success: false,
+        message: 'Respuesta inesperada del servidor de autenticación.'
+      };
+    } catch (error) {
+      console.warn('Conexión con Apps Script no disponible:', error);
+      return {
+        success: false,
+        message: 'No fue posible conectar con el servidor de autenticación. Verifica tu conexión a internet.'
+      };
+    }
+  },
+
+  // EMAIL: Enviar comprobante de venta por correo vía Google Apps Script
+  async sendSaleReceipt(saleData: any, recipientEmail?: string) {
+    try {
+      const payload = {
+        action: 'SEND_SALE_RECEIPT',
+        recipientEmail: recipientEmail || 'cfb.dig@gmail.com',
+        saleData,
+        timestamp: Date.now()
+      };
+
+      const response = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      let result: any = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = { status: 'success' };
+      }
+      return result;
+    } catch (error) {
+      console.warn('Fallo enviando comprobante por correo vía Apps Script:', error);
       throw error;
     }
   }
