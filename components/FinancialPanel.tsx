@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Movement, ManualMovement } from '../types';
+import { Movement, ManualMovement, SaleRecord } from '../types';
 import { useFinancialSummary, EnrichedMovement } from '../hooks/useFinancialSummary';
 import { 
   ArrowLeft, 
@@ -20,16 +20,12 @@ import {
   Search,
   X,
   Filter,
-  Mail,
-  Check,
-  Loader2,
-  Send,
+  ImageDown,
   MoreVertical,
   Calendar
 } from 'lucide-react';
 import { formatCurrency } from '../utils';
 import { useAppContext } from '../contexts/AppContext';
-import { syncService } from '../services/syncService';
 import { useAuth } from '../contexts/AuthContext';
 
 interface KPICardProps {
@@ -73,6 +69,7 @@ const FinancialPanel: React.FC = () => {
         products, 
         movements, 
         manualMovements,
+        sales,
         setCurrentView,
         setModal
     } = useAppContext();
@@ -93,48 +90,73 @@ const FinancialPanel: React.FC = () => {
     const [movementSearch, setMovementSearch] = useState('');
     const [movementTypeFilter, setMovementTypeFilter] = useState<string>('ALL');
 
-    // Envío y reenvío de comprobantes por correo (Paso 3)
-    const [emailModalData, setEmailModalData] = useState<{ movement: EnrichedMovement; email: string } | null>(null);
-    const [isSendingEmail, setIsSendingEmail] = useState(false);
-    const [emailNotice, setEmailNotice] = useState<string | null>(null);
-
-    const handleResendReceipt = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!emailModalData) return;
-        setIsSendingEmail(true);
-        try {
-            const m = emailModalData.movement;
-            const ticket = m.ticketId || `TICK-${m.id.slice(-6)}`;
-            const receiptPayload = {
-                ticketId: ticket,
-                timestamp: m.timestamp,
-                items: [{
-                    title: m.productTitle,
-                    variant: m.variantName,
-                    quantity: Math.abs(m.change || 1),
-                    originalPrice: m.originalPrice || m.price || 0,
-                    unitPrice: m.price || 0,
-                    subtotal: m.amount
-                }],
-                subtotal: (m.originalPrice || m.price || 0) * Math.abs(m.change || 1),
-                discountAmount: (m.discount || 0) * Math.abs(m.change || 1),
-                total: m.amount,
-                notes: m.notes
-            };
-
-            await syncService.sendSaleReceipt(receiptPayload, emailModalData.email);
-            setEmailNotice(`Comprobante del ticket #${ticket} enviado exitosamente a ${emailModalData.email}`);
-            setEmailModalData(null);
-            setTimeout(() => setEmailNotice(null), 4000);
-        } catch (err) {
-            console.error("Error al enviar comprobante:", err);
-            alert("No se pudo enviar el comprobante por correo vía Apps Script. Revisa la consola o conexión.");
-        } finally {
-            setIsSendingEmail(false);
-        }
-    };
-
     const financialData = useFinancialSummary(movements, manualMovements, products || [], dateRange, customStart, customEnd);
+
+    const openReceiptForMovement = (m: EnrichedMovement) => {
+        const ticket = m.ticketId || `TICK-${m.id.slice(-6)}`;
+        const existingSale = m.ticketId ? sales.find(s => s.ticketId === m.ticketId) : undefined;
+
+        if (existingSale) {
+            setModal({
+                type: 'sale-receipt',
+                sale: existingSale,
+                defaultMode: existingSale.paymentStatus === 'pagado' ? 'pago' : 'cobro'
+            });
+            return;
+        }
+
+        // Reconstruir SaleRecord para ventas históricas que comparten ticketId
+        const relatedMovs = m.ticketId
+            ? financialData.detailedMovements.filter(x => x.type === 'Venta' && x.ticketId === m.ticketId)
+            : [m];
+
+        const items = relatedMovs.map(rm => {
+            const qty = Math.abs(rm.change || 1);
+            const origPrice = rm.originalPrice || rm.price || (qty > 0 ? Math.round(rm.amount / qty) : 0);
+            const unitPrice = rm.price ?? (qty > 0 ? Math.round(rm.amount / qty) : 0);
+            const disc = rm.discount || Math.max(0, origPrice - unitPrice);
+            return {
+                productId: rm.id,
+                variantId: rm.id,
+                productTitle: rm.productTitle,
+                variantName: rm.variantName,
+                series: rm.series && rm.series !== '-' ? rm.series : undefined,
+                quantity: qty,
+                originalPrice: origPrice,
+                unitPrice,
+                discount: disc,
+                subtotal: rm.amount
+            };
+        });
+
+        const subtotal = items.reduce((acc, i) => acc + (i.originalPrice * i.quantity), 0);
+        const discountAmount = items.reduce((acc, i) => acc + (i.discount * i.quantity), 0);
+        const total = items.reduce((acc, i) => acc + i.subtotal, 0);
+
+        const reconstructedSale: SaleRecord = {
+            ticketId: ticket,
+            createdAt: m.timestamp,
+            paidAt: m.timestamp,
+            paymentStatus: 'pagado',
+            deliveryStatus: 'entregado',
+            customerName: 'Cliente General',
+            paymentMethod: 'Nequi',
+            subtotal,
+            discountAmount,
+            shippingCost: 0,
+            total,
+            amountPaid: total,
+            stockDeducted: true,
+            items,
+            notes: m.notes
+        };
+
+        setModal({
+            type: 'sale-receipt',
+            sale: reconstructedSale,
+            defaultMode: 'pago'
+        });
+    };
 
     const movementTypeConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
         'Venta': { icon: <Minus size={14}/>, color: 'bg-emerald-600/90 text-white', label: 'Ventas' },
@@ -870,23 +892,6 @@ const FinancialPanel: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Notificación de envío de comprobante */}
-                        {emailNotice && (
-                            <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-200 text-xs flex items-center justify-between shadow-lg">
-                                <span className="flex items-center gap-2">
-                                    <Check size={16} className="text-emerald-400 shrink-0" />
-                                    <span>{emailNotice}</span>
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setEmailNotice(null)}
-                                    className="text-emerald-400 hover:text-white text-xs font-bold px-2 py-0.5 rounded hover:bg-emerald-900/50"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                        )}
-
                         {/* 1. VISTA MÓVIL (md:hidden): Tarjetas Táctiles Ergonómicas */}
                         <div className="md:hidden space-y-2.5">
                             {filteredMovements.length > 0 ? (
@@ -959,11 +964,11 @@ const FinancialPanel: React.FC = () => {
                                                 {m.type === 'Venta' && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => setEmailModalData({ movement: m, email: 'cfb.dig@gmail.com' })}
+                                                        onClick={() => openReceiptForMovement(m)}
                                                         className="inline-flex items-center gap-1.5 bg-purple-900/60 hover:bg-purple-800 active:scale-95 text-purple-200 border border-purple-500/40 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs"
-                                                        title="Reenviar comprobante por correo"
+                                                        title="Ver y descargar comprobante en imagen PNG"
                                                     >
-                                                        <Mail size={13} className="text-purple-300 shrink-0" />
+                                                        <ImageDown size={13} className="text-purple-300 shrink-0" />
                                                         <span className="font-mono">{m.ticketId || 'Comprobante'}</span>
                                                     </button>
                                                 )}
@@ -1076,12 +1081,12 @@ const FinancialPanel: React.FC = () => {
                                                         {m.type === 'Venta' ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setEmailModalData({ movement: m, email: 'cfb.dig@gmail.com' })}
+                                                                onClick={() => openReceiptForMovement(m)}
                                                                 className="inline-flex items-center gap-1.5 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-500/40 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all hover:scale-105 active:scale-95 shadow-xs"
-                                                                title="Reenviar comprobante por correo vía Google Apps Script"
+                                                                title="Ver y descargar comprobante en imagen PNG"
                                                             >
-                                                                <Mail size={12} className="text-purple-300 shrink-0" />
-                                                                <span className="font-mono">{m.ticketId || 'Reenviar'}</span>
+                                                                <ImageDown size={12} className="text-purple-300 shrink-0" />
+                                                                <span className="font-mono">{m.ticketId || 'Comprobante'}</span>
                                                             </button>
                                                         ) : (
                                                             <span className="text-gray-600 text-[11px]">-</span>
@@ -1117,91 +1122,6 @@ const FinancialPanel: React.FC = () => {
                 <FilePlus size={18} />
                 <span className="text-xs tracking-wide">Gasto / Ingreso</span>
             </button>
-
-            {/* Modal de Reenvío de Comprobante por Correo */}
-            {emailModalData && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
-                    <div className="bg-gray-900 border border-purple-500/40 rounded-2xl p-5 max-w-md w-full shadow-2xl space-y-4">
-                        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 bg-purple-600/20 text-purple-400 rounded-lg">
-                                    <Mail size={20} />
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-white text-base">Reenviar Comprobante</h3>
-                                    <p className="text-xs text-gray-400">
-                                        Ticket: <span className="font-mono text-purple-300 font-semibold">{emailModalData.movement.ticketId || `TICK-${emailModalData.movement.id.slice(-6)}`}</span>
-                                    </p>
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setEmailModalData(null)}
-                                disabled={isSendingEmail}
-                                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors"
-                            >
-                                ✕
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleResendReceipt} className="space-y-3.5">
-                            <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3 text-xs space-y-1">
-                                <p className="text-gray-200 font-semibold truncate">{emailModalData.movement.productTitle}</p>
-                                <p className="text-gray-400">{emailModalData.movement.variantName} • Cantidad: {Math.abs(emailModalData.movement.change || 1)}</p>
-                                <p className="text-emerald-400 font-bold font-mono">Monto Venta: {formatCurrency(emailModalData.movement.amount)}</p>
-                                {emailModalData.movement.discount && emailModalData.movement.discount > 0 ? (
-                                    <p className="text-amber-400 text-[11px]">Descuento aplicado: {formatCurrency(emailModalData.movement.discount)} / unidad</p>
-                                ) : null}
-                            </div>
-
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                                    Correo de destino (Google Apps Script)
-                                </label>
-                                <input
-                                    type="email"
-                                    required
-                                    value={emailModalData.email}
-                                    onChange={(e) => setEmailModalData({ ...emailModalData, email: e.target.value })}
-                                    placeholder="cfb.dig@gmail.com"
-                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-hidden focus:border-purple-500"
-                                />
-                                <p className="text-[11px] text-gray-400 mt-1">
-                                    Se despachará la acción <span className="font-mono text-purple-300">SEND_SALE_RECEIPT</span> con el detalle formateado para el cliente.
-                                </p>
-                            </div>
-
-                            <div className="flex justify-end gap-2 pt-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setEmailModalData(null)}
-                                    disabled={isSendingEmail}
-                                    className="px-3.5 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={isSendingEmail}
-                                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-purple-900/40 transition-all hover:scale-105 active:scale-95"
-                                >
-                                    {isSendingEmail ? (
-                                        <>
-                                            <Loader2 size={14} className="animate-spin" />
-                                            <span>Enviando...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Send size={14} />
-                                            <span>Enviar Comprobante</span>
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

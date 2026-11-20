@@ -29,6 +29,7 @@ const ConfirmModal = lazy(() => import('./components/ConfirmModal'));
 const LoadFromTextModal = lazy(() => import('./components/LoadFromTextModal'));
 const RestoreModal = lazy(() => import('./components/RestoreModal'));
 const QuickSaleModal = lazy(() => import('./components/QuickSaleModal'));
+const SaleReceiptModal = lazy(() => import('./components/SaleReceiptModal'));
 const RestoreProductModal = lazy(() => import('./components/RestoreProductModal'));
 
 const App: React.FC = () => {
@@ -161,6 +162,7 @@ const App: React.FC = () => {
       case 'movements': return <MovementHistoryModal key={modal.product.id} {...commonProps} product={modal.product} />;
       case 'manual-movement': return <ManualMovementModal {...commonProps} />;
       case 'quick-sale': return <QuickSaleModal {...commonProps} />;
+      case 'sale-receipt': return <SaleReceiptModal {...commonProps} sale={modal.sale} defaultMode={modal.defaultMode} />;
       case 'tools': return user?.role === 'admin' ? <ToolsModal {...commonProps} /> : null;
       case 'fusion': return <FusionModal {...commonProps} productsToFuse={modal.products} />;
       case 'audit-log': return <AuditLogModal {...commonProps} />;

@@ -64,7 +64,7 @@ export interface UserPreferences {
 export interface AuditEntry {
   id: string;
   timestamp: number;
-  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'category_edit' | 'category_delete' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore' | 'cloud_sync';
+  type: 'product_add' | 'product_edit' | 'product_delete' | 'product_ignore' | 'product_restore' | 'product_merge' | 'category_add' | 'category_edit' | 'category_delete' | 'data_repair' | 'bulk_edit' | 'bulk_ignore' | 'bulk_delete' | 'csv_update' | 'text_load' | 'backup_restore' | 'cloud_sync' | 'sale_event';
   message: string;
 }
 
@@ -83,6 +83,47 @@ export interface StringId {
   id: string;
 }
 
+export type SalePaymentStatus = 'pendiente' | 'parcial' | 'pagado' | 'anulado';
+export type SaleDeliveryStatus = 'por_entregar' | 'enviado' | 'entregado';
+export type SalePaymentMethod = 'Efectivo' | 'Nequi' | 'Daviplata' | 'Transferencia' | 'Tarjeta' | 'Otro';
+
+export interface SaleTicketItem {
+  productId: string;
+  variantId: string;
+  productTitle: string;
+  variantName: string;
+  sku?: string;
+  series?: string;
+  quantity: number;
+  originalPrice: number;
+  unitPrice: number;
+  discount: number;
+  subtotal: number;
+}
+
+export interface SaleRecord {
+  ticketId: string;
+  createdAt: number;
+  paidAt?: number;
+  paymentStatus: SalePaymentStatus;
+  deliveryStatus: SaleDeliveryStatus;
+  customerName: string;
+  customerContact?: string;
+  customerEmail?: string;
+  paymentMethod: SalePaymentMethod;
+  subtotal: number;
+  discountAmount: number;
+  discountLabel?: string;
+  shippingCost: number;
+  total: number;
+  amountPaid: number;
+  cashReceived?: number;
+  stockDeducted: boolean;
+  items: SaleTicketItem[];
+  soldBy?: UserRole;
+  notes?: string;
+}
+
 export type ModalState =
   | { type: 'add' }
   | { type: 'edit'; product: Product }
@@ -93,6 +134,7 @@ export type ModalState =
   | { type: 'movements'; product: Product }
   | { type: 'manual-movement' }
   | { type: 'quick-sale' }
+  | { type: 'sale-receipt'; sale: SaleRecord; defaultMode?: 'cobro' | 'pago' }
   | { type: 'tools' }
   | { type: 'fusion'; products: [Product, Product] }
   | { type: 'audit-log' }

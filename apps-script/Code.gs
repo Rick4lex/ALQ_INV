@@ -63,15 +63,18 @@ function doPost(e) {
 }
 
 /**
- * Endpoint GET principal (lectura de datos)
+ * Endpoint GET principal (lectura de datos + hoja Ventas)
  */
 function doGet(e) {
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet();
     var values = sheet.getDataRange().getValues();
+    var sales = readSalesSheet(ss);
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
-      data: values
+      data: values,
+      sales: sales
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({
@@ -163,23 +166,32 @@ function validateSessionToken(token, requiredRole) {
 }
 
 /**
- * Envío de comprobante de venta por correo
+ * Envío de comprobante de venta por correo (Legado)
  */
 function handleSendSaleReceipt(payload) {
   var recipientEmail = payload.recipientEmail || 'cfb.dig@gmail.com';
   var saleData = payload.saleData || {};
   var ticketId = saleData.ticketId || ('TICK-' + new Date().getTime());
 
+  var items = saleData.items;
+  if (!items || !items.length) {
+    items = [{
+      title: saleData.title || saleData.productTitle || 'Producto / Transacción',
+      variant: saleData.variant || saleData.variantName || 'Estándar',
+      quantity: Math.abs(saleData.quantity || saleData.change || 1),
+      subtotal: Math.abs(saleData.amount || saleData.total || 0)
+    }];
+  }
+
+  var total = saleData.total || saleData.amount || 0;
   var itemsHtml = '';
-  if (saleData.items && saleData.items.length) {
-    for (var i = 0; i < saleData.items.length; i++) {
-      var item = saleData.items[i];
-      itemsHtml += '<tr>' +
-        '<td style="padding: 8px; border-bottom: 1px solid #374151;">' + (item.title || '') + ' (' + (item.variant || '') + ')</td>' +
-        '<td style="padding: 8px; border-bottom: 1px solid #374151; text-align: center;">' + (item.quantity || 1) + '</td>' +
-        '<td style="padding: 8px; border-bottom: 1px solid #374151; text-align: right;">$' + Number(item.subtotal || 0).toLocaleString('es-CO') + '</td>' +
-      '</tr>';
-    }
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    itemsHtml += '<tr>' +
+      '<td style="padding: 8px; border-bottom: 1px solid #374151;">' + (item.title || '') + ' (' + (item.variant || '') + ')</td>' +
+      '<td style="padding: 8px; border-bottom: 1px solid #374151; text-align: center;">' + (item.quantity || 1) + '</td>' +
+      '<td style="padding: 8px; border-bottom: 1px solid #374151; text-align: right;">$' + Number(item.subtotal || total).toLocaleString('es-CO') + '</td>' +
+    '</tr>';
   }
 
   var htmlBody = '<div style="font-family: sans-serif; background-color: #111827; color: #f3f4f6; padding: 24px; border-radius: 12px; max-width: 600px;">' +
@@ -193,7 +205,7 @@ function handleSendSaleReceipt(payload) {
     '<hr style="border: none; border-top: 1px solid #374151; margin: 16px 0;" />' +
     '<div style="text-align: right; font-size: 15px;">' +
       (saleData.discountAmount ? '<p style="color: #fbbf24; margin: 4px 0;">Descuento: -$' + Number(saleData.discountAmount).toLocaleString('es-CO') + '</p>' : '') +
-      '<p style="font-size: 18px; font-weight: bold; color: #34d399; margin: 6px 0;">TOTAL: $' + Number(saleData.total || 0).toLocaleString('es-CO') + '</p>' +
+      '<p style="font-size: 18px; font-weight: bold; color: #34d399; margin: 6px 0;">TOTAL: $' + Number(total).toLocaleString('es-CO') + '</p>' +
     '</div>' +
   '</div>';
 
@@ -210,12 +222,148 @@ function handleSendSaleReceipt(payload) {
 }
 
 /**
- * Procesamiento de sincronización completa
+ * Columnas oficiales de la hoja "Ventas"
+ */
+var SALES_HEADERS = [
+  'ticket_id',
+  'fecha',
+  'fecha_pago',
+  'estado_pago',
+  'estado_entrega',
+  'cliente_nombre',
+  'cliente_contacto',
+  'metodo_pago',
+  'subtotal',
+  'descuento',
+  'etiqueta_descuento',
+  'costo_envio',
+  'total',
+  'monto_pagado',
+  'stock_descontado',
+  'vendedor',
+  'notas',
+  'items_json'
+];
+
+/**
+ * Lee todos los tickets de la pestaña "Ventas" en Google Sheets
+ */
+function readSalesSheet(ss) {
+  var sheet = ss.getSheetByName('Ventas');
+  if (!sheet) return [];
+
+  var rows = sheet.getDataRange().getValues();
+  if (rows.length <= 1) return [];
+
+  var headers = rows[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+  var sales = [];
+
+  for (var i = 1; i < rows.length; i++) {
+    var row = rows[i];
+    var obj = {};
+    for (var j = 0; j < headers.length; j++) {
+      obj[headers[j]] = row[j];
+    }
+
+    var ticketId = String(obj['ticket_id'] || '').trim();
+    if (!ticketId) continue;
+
+    var parsedItems = [];
+    try {
+      if (obj['items_json']) parsedItems = JSON.parse(String(obj['items_json']));
+    } catch (e) {
+      parsedItems = [];
+    }
+
+    var createdAtRaw = obj['fecha'];
+    var createdAt = typeof createdAtRaw === 'number'
+      ? createdAtRaw
+      : (createdAtRaw instanceof Date ? createdAtRaw.getTime() : Date.parse(String(createdAtRaw)) || Date.now());
+
+    var paidAtRaw = obj['fecha_pago'];
+    var paidAt = paidAtRaw
+      ? (typeof paidAtRaw === 'number' ? paidAtRaw : (paidAtRaw instanceof Date ? paidAtRaw.getTime() : Date.parse(String(paidAtRaw)) || undefined))
+      : undefined;
+
+    sales.push({
+      ticketId: ticketId,
+      createdAt: createdAt,
+      paidAt: paidAt,
+      paymentStatus: String(obj['estado_pago'] || 'pagado'),
+      deliveryStatus: String(obj['estado_entrega'] || 'por_entregar'),
+      customerName: String(obj['cliente_nombre'] || 'Cliente General'),
+      customerContact: String(obj['cliente_contacto'] || ''),
+      paymentMethod: String(obj['metodo_pago'] || 'Efectivo'),
+      subtotal: Number(obj['subtotal']) || 0,
+      discountAmount: Number(obj['descuento']) || 0,
+      discountLabel: String(obj['etiqueta_descuento'] || ''),
+      shippingCost: Number(obj['costo_envio']) || 0,
+      total: Number(obj['total']) || 0,
+      amountPaid: Number(obj['monto_pagado']) || 0,
+      stockDeducted: String(obj['stock_descontado']).toLowerCase() === 'true' || obj['stock_descontado'] === true,
+      soldBy: String(obj['vendedor'] || 'admin'),
+      notes: String(obj['notas'] || ''),
+      items: parsedItems
+    });
+  }
+
+  return sales;
+}
+
+/**
+ * Escribe la lista de tickets en la pestaña "Ventas" (la crea si no existe)
+ */
+function writeSalesSheet(ss, salesArray) {
+  if (!Array.isArray(salesArray)) return;
+
+  var sheet = ss.getSheetByName('Ventas');
+  if (!sheet) {
+    sheet = ss.insertSheet('Ventas');
+  }
+
+  var rows = [SALES_HEADERS];
+  for (var i = 0; i < salesArray.length; i++) {
+    var s = salesArray[i];
+    if (!s || !s.ticketId) continue;
+    rows.push([
+      s.ticketId,
+      s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
+      s.paidAt ? new Date(s.paidAt).toISOString() : '',
+      s.paymentStatus || 'pendiente',
+      s.deliveryStatus || 'por_entregar',
+      s.customerName || 'Cliente General',
+      s.customerContact || '',
+      s.paymentMethod || 'Efectivo',
+      Number(s.subtotal) || 0,
+      Number(s.discountAmount) || 0,
+      s.discountLabel || '',
+      Number(s.shippingCost) || 0,
+      Number(s.total) || 0,
+      Number(s.amountPaid) || 0,
+      Boolean(s.stockDeducted),
+      s.soldBy || 'admin',
+      s.notes || '',
+      JSON.stringify(s.items || [])
+    ]);
+  }
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length, SALES_HEADERS.length).setValues(rows);
+  sheet.setFrozenRows(1);
+}
+
+/**
+ * Procesamiento de sincronización completa (incluye pestaña Ventas)
  */
 function handleFullSync(payload) {
-  // Lógica de respaldo en hoja
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var incomingSales = (payload.data && payload.data.sales) || payload.sales;
+  if (Array.isArray(incomingSales)) {
+    writeSalesSheet(ss, incomingSales);
+  }
+
   return ContentService.createTextOutput(JSON.stringify({
     status: 'success',
-    message: 'Datos sincronizados exitosamente.'
+    message: 'Datos y hoja Ventas sincronizados exitosamente.'
   })).setMimeType(ContentService.MimeType.JSON);
 }

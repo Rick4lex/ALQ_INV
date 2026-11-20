@@ -1,7 +1,7 @@
 import React from 'react';
 import { AuditEntry } from '../types';
 import Modal from './Modal';
-import { PlusCircle, Edit, Trash2, Combine, Tag, Eye, EyeOff, Wrench, Upload, FileText, RefreshCw } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Combine, Tag, Eye, EyeOff, Wrench, Upload, FileText, RefreshCw, Receipt } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 
 interface AuditLogModalProps {
@@ -31,6 +31,7 @@ const AuditLogModal: React.FC<AuditLogModalProps> = ({ isOpen, onClose }) => {
     text_load: <FileText className="text-purple-400" />,
     backup_restore: <Upload className="text-indigo-400" />,
     cloud_sync: <RefreshCw className="text-cyan-400" />,
+    sale_event: <Receipt className="text-emerald-400" />,
   };
 
   return (

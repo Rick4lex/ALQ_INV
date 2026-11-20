@@ -1,7 +1,7 @@
 // hooks/useAppStore.ts
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '../db';
-import { Product, UserPreferences, Movements, ManualMovement, Movement, AuditEntry } from '../types';
+import { Product, UserPreferences, Movements, ManualMovement, Movement, AuditEntry, SaleRecord } from '../types';
 import { INITIAL_CATEGORIES } from '../constants';
 import { runMigration } from '../migration';
 
@@ -14,6 +14,7 @@ export const useAppStore = () => {
     const [allCategories, setAllCategories] = useState<string[]>(INITIAL_CATEGORIES);
     const [movements, setMovements] = useState<Movements>({});
     const [manualMovements, setManualMovements] = useState<ManualMovement[]>([]);
+    const [sales, setSales] = useState<SaleRecord[]>([]);
     const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
     const [isMigrating, setIsMigrating] = useState(true); // Start in migrating state
     
@@ -22,7 +23,7 @@ export const useAppStore = () => {
             console.log("Loading data from IndexedDB...");
             const [
                 dbProducts, dbPreferences, dbIgnoredIds, 
-                dbCategories, dbMovements, dbManualMovements, dbAuditLog
+                dbCategories, dbMovements, dbManualMovements, dbAuditLog, dbSales
             ] = await Promise.all([
                 db.products.toArray(),
                 db.preferences.get('user'),
@@ -31,6 +32,7 @@ export const useAppStore = () => {
                 db.movements.toArray(),
                 db.manualMovements.toArray(),
                 db.auditLog.orderBy('timestamp').reverse().toArray(),
+                db.sales.orderBy('createdAt').reverse().toArray(),
             ]);
 
             setProducts(dbProducts || []);
@@ -52,6 +54,7 @@ export const useAppStore = () => {
             setMovements(groupedMovements);
 
             setManualMovements(dbManualMovements);
+            setSales(dbSales || []);
             setAuditLog(dbAuditLog);
             console.log("Data loaded successfully.");
         };
@@ -156,6 +159,7 @@ export const useAppStore = () => {
         allCategories, setAllCategories,
         movements, setMovements,
         manualMovements, setManualMovements,
+        sales, setSales,
         auditLog, setAuditLog,
         isMigrating,
         logAction, addMovement, handleProductSave, handleMultipleMovementsDelete,

@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '../hooks/useAppStore';
-import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements, BatchSaleItem, SaleReceiptPayload } from '../types';
+import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements, BatchSaleItem, SaleReceiptPayload, SaleRecord, SalePaymentMethod, SaleDeliveryStatus } from '../types';
 import { db } from '../db';
 import Dexie from 'dexie';
 import { syncService } from '../services/syncService';
@@ -20,6 +20,8 @@ type AppStoreType = {
     setMovements: React.Dispatch<React.SetStateAction<Movements>>;
     manualMovements: ManualMovement[];
     setManualMovements: React.Dispatch<React.SetStateAction<ManualMovement[]>>;
+    sales: SaleRecord[];
+    setSales: React.Dispatch<React.SetStateAction<SaleRecord[]>>;
     auditLog: AuditEntry[];
     setAuditLog: React.Dispatch<React.SetStateAction<AuditEntry[]>>;
     isMigrating: boolean;
@@ -56,6 +58,10 @@ interface AppContextType extends AppStoreType {
   handleProductDelete: (productId: string) => Promise<void>;
   handleSaveMovement: (productId: string, variantId: string, movementData: Omit<Movement, 'id' | 'variantId' | 'newStock'>) => void;
   handleBatchSale: (items: BatchSaleItem[], ticketId: string, notes?: string, recipientEmail?: string) => Promise<boolean>;
+  handleCreateSale: (sale: SaleRecord) => Promise<SaleRecord | null>;
+  handleConfirmSalePayment: (ticketId: string, paymentMethod: SalePaymentMethod, amountPaid?: number, cashReceived?: number) => Promise<SaleRecord | null>;
+  handleUpdateSaleDelivery: (ticketId: string, deliveryStatus: SaleDeliveryStatus) => Promise<void>;
+  handleCancelSale: (ticketId: string) => Promise<void>;
   handleManualMovementSave: (movement: Omit<ManualMovement, 'id'>) => void;
   handleIgnoreProduct: (productId: string) => Promise<void>;
   handleRestoreProduct: (productToRestore: Product) => void;
@@ -80,7 +86,7 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const store = useAppStore();
-  const { products, setProducts, preferences, setPreferences, ignoredProductIds, setIgnoredProductIds, allCategories, setAllCategories, movements, setMovements, manualMovements, setManualMovements, auditLog, logAction, addMovement, handleProductSave: storeHandleProductSave, handleMultipleMovementsDelete: rawHandleMultipleMovementsDelete } = store;
+  const { products, setProducts, preferences, setPreferences, ignoredProductIds, setIgnoredProductIds, allCategories, setAllCategories, movements, setMovements, manualMovements, setManualMovements, sales, setSales, auditLog, logAction, addMovement, handleProductSave: storeHandleProductSave, handleMultipleMovementsDelete: rawHandleMultipleMovementsDelete } = store;
 
   const [modal, setModal] = useState<ModalState | null>(null);
   const [fullscreenData, setFullscreenData] = useState<{ images: string[]; index: number } | null>(null);
@@ -106,10 +112,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return acc;
       }, {});
 
+      const currentSales = await db.sales.orderBy('createdAt').reverse().toArray();
+
       const payload = {
         products: currentProducts,
         categories: currentCategories,
         movements: groupedMovements,
+        sales: currentSales,
         timestamp: Date.now()
       };
 
@@ -139,6 +148,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       let incomingProducts: any[] | null = null;
       let incomingCategories: string[] | null = null;
       let incomingMovements: Movements | null = null;
+      let incomingSales: SaleRecord[] | null = null;
 
       if (Array.isArray(remoteData)) {
         incomingProducts = remoteData;
@@ -155,6 +165,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (remoteData.data.movements) {
             incomingMovements = remoteData.data.movements;
           }
+          if (Array.isArray(remoteData.data.sales)) {
+            incomingSales = remoteData.data.sales;
+          }
         } else if (Array.isArray(remoteData.placeholderImages)) {
           incomingProducts = remoteData.placeholderImages;
         }
@@ -164,6 +177,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
         if (remoteData.movements) {
           incomingMovements = remoteData.movements;
+        }
+        if (Array.isArray(remoteData.sales)) {
+          incomingSales = remoteData.sales;
         }
       }
 
@@ -289,6 +305,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setMovements(incomingMovements);
         }
 
+        if (incomingSales && incomingSales.length > 0) {
+          const validSales = incomingSales.filter((s: any) => s && s.ticketId);
+          if (validSales.length > 0) {
+            await db.sales.bulkPut(validSales);
+            const refreshedSales = await db.sales.orderBy('createdAt').reverse().toArray();
+            setSales(refreshedSales);
+          }
+        }
+
         await logAction(
           'cloud_sync', 
           `Sincronización remota exitosa: ${normalizedProducts.length} productos actualizados${deletedIds.length > 0 ? `, ${deletedIds.length} eliminados conciliados` : ''}.`
@@ -302,7 +327,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing, allCategories, setProducts, setAllCategories, setMovements, logAction]);
+  }, [isSyncing, allCategories, ignoredProductIds, setProducts, setAllCategories, setMovements, setSales, setIgnoredProductIds, logAction]);
 
   const handleProductSave = useCallback(async (productToSave: Product) => {
     await storeHandleProductSave(productToSave);
@@ -399,6 +424,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         db.movements,
         db.manualMovements,
         db.auditLog,
+        db.sales,
     ], async () => {
         await Promise.all([
             db.products.clear(),
@@ -408,6 +434,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             db.movements.clear(),
             db.manualMovements.clear(),
             db.auditLog.clear(),
+            db.sales.clear(),
         ]);
 
         await db.products.bulkPut(backupData.products);
@@ -418,6 +445,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         await db.movements.bulkPut(flatMovements as Movement[]);
         await db.manualMovements.bulkPut(backupData.manualMovements || []);
         await db.auditLog.bulkPut(backupData.auditLog || []);
+        if (Array.isArray(backupData.sales) && backupData.sales.length > 0) {
+          await db.sales.bulkPut(backupData.sales);
+        }
     });
     await logAction('backup_restore', 'La aplicación se restauró desde un archivo de backup.');
     alert('¡Restauración completada con éxito! La aplicación se recargará.');
@@ -586,6 +616,306 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     return true;
   }, [products, setProducts, setMovements, logAction, triggerRemoteSave]);
+
+  const handleCreateSale = useCallback(async (sale: SaleRecord): Promise<SaleRecord | null> => {
+    if (!products || sale.items.length === 0) return null;
+
+    const shouldDeductStock = sale.paymentStatus === 'pagado' || sale.stockDeducted;
+    const isPaid = sale.paymentStatus === 'pagado';
+    const timestamp = sale.createdAt || Date.now();
+
+    const productUpdatesMap = new Map<string, Product>();
+    const createdMovements: Movement[] = [];
+
+    if (shouldDeductStock) {
+      for (const item of sale.items) {
+        const currentProduct = productUpdatesMap.get(item.productId) || products.find(p => p.id === item.productId);
+        if (!currentProduct) continue;
+
+        const variant = currentProduct.variants.find(v => v.id === item.variantId);
+        if (!variant) continue;
+
+        const newStock = Math.max(0, variant.stock - item.quantity);
+        const updatedProduct: Product = {
+          ...currentProduct,
+          variants: currentProduct.variants.map(v => v.id === item.variantId ? { ...v, stock: newStock } : v)
+        };
+        productUpdatesMap.set(item.productId, updatedProduct);
+
+        const customerSuffix = sale.customerName ? ` • ${sale.customerName}` : '';
+        const mov: Movement = {
+          id: `mov-${timestamp}-${Math.random().toString(36).substring(2, 7)}`,
+          variantId: item.variantId,
+          timestamp,
+          type: isPaid ? 'Venta' : 'Ajuste',
+          change: -item.quantity,
+          newStock,
+          price: item.unitPrice,
+          cost: typeof variant.cost === 'number' ? variant.cost : 0,
+          ticketId: sale.ticketId,
+          originalPrice: item.originalPrice,
+          discount: item.discount,
+          notes: isPaid
+            ? (sale.notes || `Venta Ticket #${sale.ticketId}${customerSuffix}`)
+            : `Apartado Ticket #${sale.ticketId}${customerSuffix}`
+        };
+        createdMovements.push(mov);
+      }
+    }
+
+    const updatedProductsArray = Array.from(productUpdatesMap.values());
+    const finalSale: SaleRecord = {
+      ...sale,
+      createdAt: timestamp,
+      paidAt: isPaid ? (sale.paidAt || timestamp) : sale.paidAt,
+      stockDeducted: shouldDeductStock
+    };
+
+    await (db as Dexie).transaction('rw', db.products, db.movements, db.sales, async () => {
+      if (updatedProductsArray.length > 0) {
+        await db.products.bulkPut(updatedProductsArray);
+      }
+      if (createdMovements.length > 0) {
+        await db.movements.bulkPut(createdMovements);
+      }
+      await db.sales.put(finalSale);
+    });
+
+    if (updatedProductsArray.length > 0) {
+      setProducts(prev => {
+        if (!prev) return null;
+        const updatedMap = new Map(updatedProductsArray.map(p => [p.id, p]));
+        return prev.map(p => updatedMap.get(p.id) || p);
+      });
+    }
+
+    if (createdMovements.length > 0) {
+      setMovements(prev => {
+        const next = { ...prev };
+        createdMovements.forEach(m => {
+          if (!next[m.variantId]) next[m.variantId] = [];
+          next[m.variantId] = [...next[m.variantId], m];
+        });
+        return next;
+      });
+    }
+
+    setSales(prev => [finalSale, ...prev.filter(s => s.ticketId !== finalSale.ticketId)]);
+
+    const statusLabel = isPaid ? 'Venta pagada' : (finalSale.paymentStatus === 'parcial' ? 'Abono registrado' : 'Cuenta de cobro');
+    await logAction(
+      'sale_event',
+      `${statusLabel} #${finalSale.ticketId} (${finalSale.customerName || 'Cliente'}) — Total: $${finalSale.total.toLocaleString('es-CO')}`
+    );
+
+    triggerRemoteSave();
+    return finalSale;
+  }, [products, setProducts, setMovements, setSales, logAction, triggerRemoteSave]);
+
+  const handleConfirmSalePayment = useCallback(async (
+    ticketId: string,
+    paymentMethod: SalePaymentMethod,
+    amountPaid?: number,
+    cashReceived?: number
+  ): Promise<SaleRecord | null> => {
+    const existingSale = sales.find(s => s.ticketId === ticketId) || await db.sales.get(ticketId);
+    if (!existingSale || existingSale.paymentStatus === 'anulado') return null;
+
+    const nextAmountPaid = amountPaid !== undefined
+      ? Math.min(existingSale.total, Math.max(0, amountPaid))
+      : existingSale.total;
+    const isNowFullyPaid = nextAmountPaid >= existingSale.total;
+    const wasAlreadyPaid = existingSale.paymentStatus === 'pagado';
+    const now = Date.now();
+
+    const productUpdatesMap = new Map<string, Product>();
+    const createdMovements: Movement[] = [];
+    let removedReservationIds: { id: string; variantId: string }[] = [];
+
+    if (isNowFullyPaid && !wasAlreadyPaid && products) {
+      if (existingSale.stockDeducted) {
+        // Stock ya apartado: reemplazar movimientos de 'Ajuste' por 'Venta' sin volver a descontar stock
+        const oldTicketMovs = await db.movements.where('ticketId').equals(ticketId).toArray();
+        removedReservationIds = oldTicketMovs
+          .filter(m => m.type === 'Ajuste')
+          .map(m => ({ id: m.id, variantId: m.variantId }));
+      }
+
+      for (const item of existingSale.items) {
+        const currentProduct = productUpdatesMap.get(item.productId) || products.find(p => p.id === item.productId);
+        if (!currentProduct) continue;
+        const variant = currentProduct.variants.find(v => v.id === item.variantId);
+        if (!variant) continue;
+
+        let resultingStock = variant.stock;
+        if (!existingSale.stockDeducted) {
+          resultingStock = Math.max(0, variant.stock - item.quantity);
+          const updatedProduct: Product = {
+            ...currentProduct,
+            variants: currentProduct.variants.map(v => v.id === item.variantId ? { ...v, stock: resultingStock } : v)
+          };
+          productUpdatesMap.set(item.productId, updatedProduct);
+        }
+
+        const customerSuffix = existingSale.customerName ? ` • ${existingSale.customerName}` : '';
+        createdMovements.push({
+          id: `mov-${now}-${Math.random().toString(36).substring(2, 7)}`,
+          variantId: item.variantId,
+          timestamp: now,
+          type: 'Venta',
+          change: -item.quantity,
+          newStock: resultingStock,
+          price: item.unitPrice,
+          cost: typeof variant.cost === 'number' ? variant.cost : 0,
+          ticketId: existingSale.ticketId,
+          originalPrice: item.originalPrice,
+          discount: item.discount,
+          notes: existingSale.notes || `Venta Ticket #${existingSale.ticketId}${customerSuffix}`
+        });
+      }
+    }
+
+    const updatedSale: SaleRecord = {
+      ...existingSale,
+      paymentMethod,
+      amountPaid: nextAmountPaid,
+      paymentStatus: isNowFullyPaid ? 'pagado' : 'parcial',
+      paidAt: isNowFullyPaid ? now : existingSale.paidAt,
+      cashReceived: cashReceived !== undefined ? cashReceived : existingSale.cashReceived,
+      stockDeducted: isNowFullyPaid ? true : existingSale.stockDeducted
+    };
+
+    const updatedProductsArray = Array.from(productUpdatesMap.values());
+
+    await (db as Dexie).transaction('rw', db.products, db.movements, db.sales, async () => {
+      if (updatedProductsArray.length > 0) {
+        await db.products.bulkPut(updatedProductsArray);
+      }
+      if (removedReservationIds.length > 0) {
+        await db.movements.bulkDelete(removedReservationIds.map(r => r.id));
+      }
+      if (createdMovements.length > 0) {
+        await db.movements.bulkPut(createdMovements);
+      }
+      await db.sales.put(updatedSale);
+    });
+
+    if (updatedProductsArray.length > 0) {
+      setProducts(prev => {
+        if (!prev) return null;
+        const updatedMap = new Map(updatedProductsArray.map(p => [p.id, p]));
+        return prev.map(p => updatedMap.get(p.id) || p);
+      });
+    }
+
+    if (removedReservationIds.length > 0 || createdMovements.length > 0) {
+      const removedIdSet = new Set(removedReservationIds.map(r => r.id));
+      setMovements(prev => {
+        const next = { ...prev };
+        removedReservationIds.forEach(r => {
+          if (next[r.variantId]) {
+            next[r.variantId] = next[r.variantId].filter(m => !removedIdSet.has(m.id));
+          }
+        });
+        createdMovements.forEach(m => {
+          if (!next[m.variantId]) next[m.variantId] = [];
+          next[m.variantId] = [...next[m.variantId], m];
+        });
+        return next;
+      });
+    }
+
+    setSales(prev => prev.map(s => s.ticketId === ticketId ? updatedSale : s));
+
+    await logAction(
+      'sale_event',
+      isNowFullyPaid
+        ? `Pago confirmado Ticket #${ticketId} (${paymentMethod}) — $${updatedSale.total.toLocaleString('es-CO')}`
+        : `Abono actualizado Ticket #${ticketId} (${paymentMethod}) — Abonado: $${nextAmountPaid.toLocaleString('es-CO')}`
+    );
+
+    triggerRemoteSave();
+    return updatedSale;
+  }, [sales, products, setProducts, setMovements, setSales, logAction, triggerRemoteSave]);
+
+  const handleUpdateSaleDelivery = useCallback(async (ticketId: string, deliveryStatus: SaleDeliveryStatus) => {
+    const existingSale = sales.find(s => s.ticketId === ticketId) || await db.sales.get(ticketId);
+    if (!existingSale) return;
+
+    const updatedSale: SaleRecord = { ...existingSale, deliveryStatus };
+    await db.sales.put(updatedSale);
+    setSales(prev => prev.map(s => s.ticketId === ticketId ? updatedSale : s));
+    await logAction('sale_event', `Entrega Ticket #${ticketId} actualizada a "${deliveryStatus}".`);
+    triggerRemoteSave();
+  }, [sales, setSales, logAction, triggerRemoteSave]);
+
+  const handleCancelSale = useCallback(async (ticketId: string) => {
+    const existingSale = sales.find(s => s.ticketId === ticketId) || await db.sales.get(ticketId);
+    if (!existingSale || existingSale.paymentStatus === 'anulado') return;
+
+    const productUpdatesMap = new Map<string, Product>();
+    let removedMovements: Movement[] = [];
+
+    if (existingSale.stockDeducted && products) {
+      removedMovements = await db.movements.where('ticketId').equals(ticketId).toArray();
+
+      for (const item of existingSale.items) {
+        const currentProduct = productUpdatesMap.get(item.productId) || products.find(p => p.id === item.productId);
+        if (!currentProduct) continue;
+        const variant = currentProduct.variants.find(v => v.id === item.variantId);
+        if (!variant) continue;
+
+        const restoredStock = variant.stock + item.quantity;
+        const updatedProduct: Product = {
+          ...currentProduct,
+          variants: currentProduct.variants.map(v => v.id === item.variantId ? { ...v, stock: restoredStock } : v)
+        };
+        productUpdatesMap.set(item.productId, updatedProduct);
+      }
+    }
+
+    const updatedSale: SaleRecord = {
+      ...existingSale,
+      paymentStatus: 'anulado',
+      stockDeducted: false
+    };
+    const updatedProductsArray = Array.from(productUpdatesMap.values());
+
+    await (db as Dexie).transaction('rw', db.products, db.movements, db.sales, async () => {
+      if (updatedProductsArray.length > 0) {
+        await db.products.bulkPut(updatedProductsArray);
+      }
+      if (removedMovements.length > 0) {
+        await db.movements.bulkDelete(removedMovements.map(m => m.id));
+      }
+      await db.sales.put(updatedSale);
+    });
+
+    if (updatedProductsArray.length > 0) {
+      setProducts(prev => {
+        if (!prev) return null;
+        const updatedMap = new Map(updatedProductsArray.map(p => [p.id, p]));
+        return prev.map(p => updatedMap.get(p.id) || p);
+      });
+    }
+
+    if (removedMovements.length > 0) {
+      const removedIds = new Set(removedMovements.map(m => m.id));
+      setMovements(prev => {
+        const next = { ...prev };
+        removedMovements.forEach(m => {
+          if (next[m.variantId]) {
+            next[m.variantId] = next[m.variantId].filter(x => !removedIds.has(x.id));
+          }
+        });
+        return next;
+      });
+    }
+
+    setSales(prev => prev.map(s => s.ticketId === ticketId ? updatedSale : s));
+    await logAction('sale_event', `Ticket #${ticketId} anulado${existingSale.stockDeducted ? ' (stock restaurado)' : ''}.`);
+    triggerRemoteSave();
+  }, [sales, products, setProducts, setMovements, setSales, logAction, triggerRemoteSave]);
   
   const handleManualMovementSave = useCallback(async (movement: Omit<ManualMovement, 'id'>) => {
       const newMovement: ManualMovement = { ...movement, id: `manual-${Date.now()}` };
@@ -754,6 +1084,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 categories: (await db.allCategories.toArray()).map(item => item.id),
                 movements: movements,
                 manualMovements: await db.manualMovements.toArray(),
+                sales: await db.sales.orderBy('createdAt').reverse().toArray(),
                 auditLog: await db.auditLog.toArray(),
             };
             const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
@@ -1056,6 +1387,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     handleImageClick, toggleFusionSelection, startFusion, handleBulkEditSave,
     handleBulkIgnore, handleBulkDelete, changeFullscreenImage,
     handleMultipleMovementsDelete, handleBatchSale,
+    handleCreateSale, handleConfirmSalePayment, handleUpdateSaleDelivery, handleCancelSale,
     isSyncing, handleManualSync, triggerRemoteSave, isAnyModalOpen, handleProductSave,
   }), [
     store, modal, fullscreenData, currentView, fusionMode, selectedForFusion, 
@@ -1065,6 +1397,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     handleCsvImport, handleRepairDuplicateVariantIds, handleProductMerge, handleImageClick, 
     toggleFusionSelection, startFusion, handleBulkEditSave, handleBulkIgnore, 
     handleBulkDelete, changeFullscreenImage, handleMultipleMovementsDelete, handleBatchSale,
+    handleCreateSale, handleConfirmSalePayment, handleUpdateSaleDelivery, handleCancelSale,
     isSyncing, handleManualSync, triggerRemoteSave, isAnyModalOpen, handleProductSave
   ]);
 
