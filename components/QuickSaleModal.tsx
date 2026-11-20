@@ -42,7 +42,8 @@ import {
   CreditCard,
   Mail,
   X,
-  Layers
+  Layers,
+  RefreshCw
 } from 'lucide-react';
 
 interface QuickSaleModalProps {
@@ -110,6 +111,8 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
     preferences,
     updatePreference,
     sales,
+    isSyncing,
+    handleManualSync,
     handleCreateSale,
     handleConfirmSalePayment,
     handleUpdateSaleDelivery,
@@ -169,6 +172,47 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
   const [confirmPayAmount, setConfirmPayAmount] = useState<number | ''>('');
   const [cancellingTicketId, setCancellingTicketId] = useState<string | null>(null);
   const [processingTicketId, setProcessingTicketId] = useState<string | null>(null);
+  const [isRefreshingTickets, setIsRefreshingTickets] = useState(false);
+
+  // Sincronización automática al abrir el panel o cambiar a Tickets / Caja de Hoy
+  useEffect(() => {
+    if (!isOpen) return;
+    if (activeTab === 'tickets' || activeTab === 'today') {
+      handleManualSync(true);
+    }
+  }, [isOpen, activeTab, handleManualSync]);
+
+  // Al abrir el panel por primera vez, traer el estado más reciente de Sheets
+  useEffect(() => {
+    if (isOpen) {
+      handleManualSync(true);
+    }
+  }, [isOpen, handleManualSync]);
+
+  // Refresco silencioso cada 20s mientras se consultan Tickets o Caja de Hoy (pausado si hay edición inline)
+  useEffect(() => {
+    if (!isOpen || (activeTab !== 'tickets' && activeTab !== 'today')) return;
+    if (confirmingPayTicketId || cancellingTicketId || processingTicketId) return;
+
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleManualSync(true);
+      }
+    }, 20000);
+
+    return () => clearInterval(timer);
+  }, [isOpen, activeTab, confirmingPayTicketId, cancellingTicketId, processingTicketId, handleManualSync]);
+
+  const handleRefreshSalesNow = async () => {
+    if (isRefreshingTickets || isSyncing) return;
+    setIsRefreshingTickets(true);
+    try {
+      await handleManualSync(true);
+      showNotice('success', 'Tickets sincronizados con Google Sheets.');
+    } finally {
+      setIsRefreshingTickets(false);
+    }
+  };
 
   const showNotice = (type: 'error' | 'success', text: string) => {
     setInlineNotice({ type, text });
@@ -889,21 +933,36 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
               </button>
             </div>
 
-            <div className="hidden md:flex items-center gap-3 text-xs text-gray-400 tabular-nums">
-              <span>
-                Cobrado hoy:{' '}
-                <strong className="text-emerald-400 font-mono">
-                  {formatCurrency(todayStats.collectedToday)}
-                </strong>
-              </span>
-              {todayStats.globalPendingBalance > 0 && (
+            <div className="flex items-center gap-3 text-xs text-gray-400 tabular-nums ml-auto">
+              <div className="hidden md:flex items-center gap-3">
                 <span>
-                  Por cobrar:{' '}
-                  <strong className="text-amber-300 font-mono">
-                    {formatCurrency(todayStats.globalPendingBalance)}
+                  Cobrado hoy:{' '}
+                  <strong className="text-emerald-400 font-mono">
+                    {formatCurrency(todayStats.collectedToday)}
                   </strong>
                 </span>
-              )}
+                {todayStats.globalPendingBalance > 0 && (
+                  <span>
+                    Por cobrar:{' '}
+                    <strong className="text-amber-300 font-mono">
+                      {formatCurrency(todayStats.globalPendingBalance)}
+                    </strong>
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleRefreshSalesNow}
+                disabled={isRefreshingTickets || isSyncing}
+                title="Sincronizar tickets y stock desde Google Sheets"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-800/80 hover:bg-gray-700/80 border border-gray-700 text-gray-200 text-xs font-medium transition-colors disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={13}
+                  className={isRefreshingTickets || isSyncing ? 'animate-spin text-purple-300' : 'text-purple-300'}
+                />
+                <span className="hidden sm:inline">Sincronizar</span>
+              </button>
             </div>
           </div>
 

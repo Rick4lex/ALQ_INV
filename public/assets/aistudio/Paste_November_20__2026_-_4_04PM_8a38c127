@@ -1,0 +1,754 @@
+Archivo (.gs)	Módulo y Responsabilidades	Código Fuente Completo (Apps Script)
+Code.gs	"Router Principal (doGet / doPost)
+• doGet(e): Endpoint GET que entrega la base de datos completa serializada en JSON (incluye sales).
+• doPost(e): Router central que procesa LOGIN, UPSERT_SALE / CREATE_SALE / UPDATE_SALE, SEND_SALE_RECEIPT y FULL_SYNC / SAVE_DATA.
+• respondJson(data): Helper estándar para respuestas HTTP JSON."	"/**
+ * ============================================================================
+ * ARCHIVO 1: Code.gs - ROUTER PRINCIPAL
+ * Proyecto: Alquima Mizu (Base de Datos, POS & Panel de Ventas)
+ * ============================================================================
+ */
+
+const SHEET_NAME_PRODUCTS = 'Productos';
+const SHEET_NAME_SALES = 'Ventas';
+
+/**
+ * Endpoint HTTP GET: Entrega la base de datos completa serializada en JSON (incluye sales).
+ */
+function doGet(e) {
+  try {
+    const data = getCompleteDatabase();
+    return respondJson({ status: 'success', ...data });
+  } catch (error) {
+    return respondJson({ status: 'error', message: error.toString() });
+  }
+}
+
+/**
+ * Endpoint HTTP POST: Router central para acciones del cliente / POS.
+ * Recibe Content-Type: text/plain para evitar preflight CORS.
+ */
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      throw new Error('No se recibieron datos en el cuerpo del POST.');
+    }
+
+    const payload = JSON.parse(e.postData.contents);
+    const action = payload.action;
+
+    // 1. LOGIN (Público / Validación por PIN)
+    if (action === 'LOGIN') {
+      return handleLogin(payload);
+    }
+
+    // 2. CREAR O ACTUALIZAR TICKET DE VENTA (Permite admin y vendedor)
+    if (action === 'UPSERT_SALE' || action === 'CREATE_SALE' || action === 'UPDATE_SALE') {
+      var saleAuth = validateSessionToken(payload.token);
+      if (!saleAuth.valid) {
+        return respondJson({ status: 'error', message: saleAuth.message });
+      }
+      return handleUpsertSale(payload.sale || payload.saleData || payload.data, saleAuth.role);
+    }
+
+    // 3. ENVIAR COMPROBANTE DE VENTA (Permite admin y vendedor)
+    if (action === 'SEND_SALE_RECEIPT') {
+      var emailAuth = validateSessionToken(payload.token);
+      if (!emailAuth.valid) {
+        return respondJson({ status: 'error', message: emailAuth.message });
+      }
+      return handleSendSaleReceipt(payload);
+    }
+
+    // 4. GUARDADO Y SINCRONIZACIÓN COMPLETA (Requiere Rol Admin)
+    if (action === 'FULL_SYNC' || action === 'SAVE_DATA') {
+      var adminAuth = validateSessionToken(payload.token, 'admin');
+      if (!adminAuth.valid) {
+        return respondJson({ status: 'error', message: adminAuth.message });
+      }
+
+      const rawData = payload.data || payload;
+      const summary = overwriteDatabase(rawData);
+
+      return respondJson({
+        status: 'success',
+        updated: summary.products,
+        salesUpdated: summary.sales
+      });
+    }
+
+    return respondJson({ status: 'error', message: 'Acción no reconocida: ' + action });
+
+  } catch (error) {
+    return respondJson({ status: 'error', message: error.toString() });
+  }
+}
+
+/**
+ * Helper estándar para generar respuestas HTTP en formato JSON.
+ */
+function respondJson(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}"
+Auth.gs	"Autenticación y Seguridad de Tokens (HMAC SHA-256)
+• handleLogin(payload): Valida PIN de administrador ('3737') o vendedor ('6666') y genera token firmado con HMAC SHA-256 válido por 12 horas.
+• validateSessionToken(token, requiredRole): Valida la firma criptográfica del token, expiración temporal y jerarquía de roles para proteger acciones críticas."	"/**
+ * ============================================================================
+ * ARCHIVO 2: Auth.gs - AUTENTICACIÓN Y SEGURIDAD DE TOKENS (HMAC SHA-256)
+ * Proyecto: Alquima Mizu
+ * ============================================================================
+ */
+
+function handleLogin(payload) {
+  var props = PropertiesService.getScriptProperties();
+  var adminPin = props.getProperty('ADMIN_PIN') || '3737';
+  var sellerPin = props.getProperty('SELLER_PIN') || '6666';
+  var secret = props.getProperty('TOKEN_SECRET') || 'alquima_mizu_token_242903074006';
+
+  var pin = String(payload.pin || '').trim();
+  var authenticatedRole = null;
+
+  if (pin === adminPin) {
+    authenticatedRole = 'admin';
+  } else if (pin === sellerPin) {
+    authenticatedRole = 'vendedor';
+  }
+
+  if (!authenticatedRole) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      message: 'PIN o contraseña incorrecta.'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Token válido por 12 horas
+  var expiresAt = new Date().getTime() + (12 * 60 * 60 * 1000);
+  var rawData = authenticatedRole + '|' + expiresAt;
+  var signature = Utilities.computeHmacSha256Signature(rawData, secret);
+  var token = Utilities.base64Encode(rawData) + '.' + Utilities.base64Encode(signature);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    token: token,
+    role: authenticatedRole,
+    expiresAt: expiresAt,
+    userEmail: authenticatedRole === 'admin' ? 'cfb.dig@gmail.com' : 'vendedor@alquima.local'
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function validateSessionToken(token, requiredRole) {
+  if (!token) return { valid: false, message: 'Falta token de sesión.' };
+  var parts = token.split('.');
+  if (parts.length !== 2) return { valid: false, message: 'Token con formato inválido.' };
+
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('TOKEN_SECRET') || 'alquima_mizu_token_242903074006';
+
+  var rawData = Utilities.newBlob(Utilities.base64Decode(parts[0])).getDataAsString();
+  var dataParts = rawData.split('|');
+  var role = dataParts[0];
+  var expiresAt = parseInt(dataParts[1], 10);
+
+  if (new Date().getTime() > expiresAt) {
+    return { valid: false, message: 'Sesión expirada. Vuelve a iniciar sesión.' };
+  }
+
+  var expectedSignature = Utilities.computeHmacSha256Signature(rawData, secret);
+  if (Utilities.base64Encode(expectedSignature) !== parts[1]) {
+    return { valid: false, message: 'Firma de seguridad no válida.' };
+  }
+
+  if (requiredRole && requiredRole === 'admin' && role !== 'admin') {
+    return { valid: false, message: 'Permisos insuficientes. Requiere Administrador.' };
+  }
+
+  return { valid: true, role: role };
+}"
+API_Get.gs	"Lectura y Serialización de la Base de Datos (incluye Ventas)
+• getCompleteDatabase(): Serializa exhaustivamente todas las colecciones del sistema (Configuración, Variantes, Productos, Movimientos, Logs y Ventas).
+• Mapeo robusto de campos comerciales: ticket_id, subtotales, abonos, saldo_pendiente, items_json y estados."	"/**
+ * ============================================================================
+ * ARCHIVO 3: API_Get.gs - LECTURA Y SERIALIZACIÓN DE LA BASE DE DATOS
+ * Proyecto: Alquima Mizu
+ * ============================================================================
+ */
+
+function getCompleteDatabase() {
+  const db = {
+    products: [],
+    preferences: {},
+    ignoredProductIds: [],
+    categories: [],
+    movements: {},
+    auditLog: [],
+    sales: []
+  };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Configuración
+  const configData = sheetToObjects(ss, 'Configuracion');
+  configData.forEach(row => {
+    if (row.Clave === 'categories') {
+      db.categories = row.Valor ? String(row.Valor).split(',').map(s => s.trim()).filter(Boolean) : [];
+    } else if (row.Clave === 'ignoredProductIds') {
+      db.ignoredProductIds = row.Valor ? String(row.Valor).split(',').map(s => s.trim()).filter(Boolean) : [];
+    } else if (row.Clave && String(row.Clave).startsWith('preferences.')) {
+      const key = String(row.Clave).replace('preferences.', '');
+      db.preferences[key] = row.Valor === 'true' ? true : (row.Valor === 'false' ? false : row.Valor);
+    }
+  });
+
+  // 2. Variantes
+  const variantesData = sheetToObjects(ss, 'Variantes');
+
+  // 3. Productos (separador '|' en imageUrls e imageHint)
+  const productosData = sheetToObjects(ss, SHEET_NAME_PRODUCTS);
+  db.products = productosData.map(p => {
+    if (!p.id && !p.title) return null;
+
+    return {
+      id: p.id,
+      title: p.title,
+      category: p.category || 'general',
+      description: p.description || '',
+      details: p.details || '',
+      imageUrls: p.imageUrls ? String(p.imageUrls).split('|').map(s => s.trim()).filter(Boolean) : [],
+      imageHint: p.imageHint ? String(p.imageHint).split('|').map(s => s.trim()).filter(Boolean) : [],
+      available: String(p.available).toLowerCase() === 'true',
+      variants: variantesData.filter(v => String(v.productId) === String(p.id)).map(v => ({
+        id: v.id,
+        name: v.name,
+        sku: v.sku || '',
+        price: Number(v.price) || 0,
+        stock: Number(v.stock) || 0,
+        cost: Number(v.cost) || 0,
+        itemCount: Number(v.itemCount) || 1,
+        imageUrl: v.imageUrl ? String(v.imageUrl).trim() : ''
+      }))
+    };
+  }).filter(Boolean);
+
+  // 4. Movimientos (Kardex de stock)
+  const movsData = sheetToObjects(ss, 'Movimientos');
+  movsData.forEach(m => {
+    if (!m.id && !m.variantId) return;
+    if (!db.movements[m.variantId]) db.movements[m.variantId] = [];
+    db.movements[m.variantId].push({
+      id: m.id,
+      timestamp: Number(m.timestamp),
+      type: m.type,
+      change: Number(m.change),
+      newStock: Number(m.newStock),
+      notes: m.notes || '',
+      price: Number(m.price) || 0,
+      cost: Number(m.cost) || 0,
+      variantId: m.variantId
+    });
+  });
+
+  // 5. Logs
+  db.auditLog = sheetToObjects(ss, 'Logs')
+    .filter(l => l.id || l.message)
+    .map(l => ({
+      id: l.id,
+      timestamp: Number(l.timestamp),
+      type: l.type,
+      message: l.message
+    }));
+
+  // 6. Ventas (Registro comercial por ticket)
+  const salesData = sheetToObjects(ss, SHEET_NAME_SALES);
+  db.sales = salesData.map(s => {
+    if (!s.ticket_id && !s.cliente_nombre) return null;
+
+    const subtotal = Number(s.subtotal) || 0;
+    const descuento = Number(s.descuento) || 0;
+    const costoEnvio = Number(s.costo_envio) || 0;
+    const total = Number(s.total) || Math.max(0, subtotal - descuento + costoEnvio);
+    const montoPagado = Number(s.monto_pagado) || 0;
+
+    let parsedItems = [];
+    const itemsJsonRaw = s.items_json ? String(s.items_json).trim() : '';
+    if (itemsJsonRaw) {
+      try {
+        const parsed = JSON.parse(itemsJsonRaw);
+        if (Array.isArray(parsed)) parsedItems = parsed;
+      } catch (err) {
+        parsedItems = [];
+      }
+    }
+
+    const fechaVal = s.fecha instanceof Date ? s.fecha.toISOString() : (s.fecha || '');
+
+    return {
+      ticket_id: String(s.ticket_id || '').trim(),
+      fecha: fechaVal,
+      estado_pago: String(s.estado_pago || 'pendiente').trim().toLowerCase(),
+      cliente_nombre: String(s.cliente_nombre || '').trim(),
+      metodo_pago: String(s.metodo_pago || 'Efectivo').trim(),
+      subtotal: subtotal,
+      descuento: descuento,
+      total: total,
+      monto_pagado: montoPagado,
+      saldo_pendiente: Math.max(0, total - montoPagado),
+      items: parsedItems,
+      items_json: itemsJsonRaw,
+      stock_descontado: String(s.stock_descontado).toLowerCase() === 'true',
+      costo_envio: costoEnvio,
+      cliente_contacto: String(s.cliente_contacto || '').trim(),
+      estado_entrega: String(s.estado_entrega || 'por_entregar').trim().toLowerCase(),
+      vendedor: String(s.vendedor || '').trim(),
+      notas: String(s.notas || '').trim()
+    };
+  }).filter(Boolean);
+
+  return db;
+}"
+DbHelper.gs	"Utilidades de Hojas y Sincronización Total (overwriteDatabase)
+• sheetToObjects(ss, sheetName): Convierte cualquier pestaña con encabezados a arreglo de objetos.
+• getOrCreateSalesSheet(ss): Obtiene o inicializa la pestaña 'Ventas' con sus 16 encabezados.
+• serializeSaleToRow(s): Convierte un objeto de ticket al formato plano de 16 columnas.
+• overwriteDatabase(fullState): Sincroniza y sobrescribe de forma atómica todas las hojas del libro."	"/**
+ * ============================================================================
+ * ARCHIVO 4: DbHelper.gs - UTILIDADES DE HOJAS Y GUARDADO FULL_SYNC
+ * Proyecto: Alquima Mizu
+ * ============================================================================
+ */
+
+const SALES_HEADERS = [
+  'ticket_id',
+  'fecha',
+  'estado_pago',
+  'cliente_nombre',
+  'metodo_pago',
+  'subtotal',
+  'descuento',
+  'total',
+  'monto_pagado',
+  'items_json',
+  'stock_descontado',
+  'costo_envio',
+  'cliente_contacto',
+  'estado_entrega',
+  'vendedor',
+  'notas'
+];
+
+function sheetToObjects(ss, sheetName) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const headers = data.shift();
+  return data.map(row => {
+    const obj = {};
+    headers.forEach((header, i) => {
+      obj[String(header).trim()] = row[i];
+    });
+    return obj;
+  });
+}
+
+function getOrCreateSalesSheet(ss) {
+  let sheet = ss.getSheetByName(SHEET_NAME_SALES);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME_SALES);
+    sheet.appendRow(SALES_HEADERS);
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(SALES_HEADERS);
+  }
+  return sheet;
+}
+
+function serializeSaleToRow(s) {
+  const subtotal = Number(s.subtotal) || 0;
+  const descuento = Number(s.descuento !== undefined ? s.descuento : (s.discountAmount || 0)) || 0;
+  const costoEnvio = Number(s.costo_envio !== undefined ? s.costo_envio : (s.shippingCost || 0)) || 0;
+  const total = Number(s.total !== undefined ? s.total : Math.max(0, subtotal - descuento + costoEnvio)) || 0;
+  const montoPagado = Number(s.monto_pagado !== undefined ? s.monto_pagado : (s.paidAmount || 0)) || 0;
+
+  let estadoPago = s.estado_pago ? String(s.estado_pago).trim().toLowerCase() : '';
+  if (!estadoPago) {
+    if (montoPagado >= total && total > 0) estadoPago = 'pagado';
+    else if (montoPagado > 0) estadoPago = 'parcial';
+    else estadoPago = 'pendiente';
+  }
+
+  let itemsJson = '';
+  if (typeof s.items_json === 'string' && s.items_json.trim() !== '') {
+    itemsJson = s.items_json.trim();
+  } else if (Array.isArray(s.items)) {
+    itemsJson = JSON.stringify(s.items);
+  } else {
+    itemsJson = '[]';
+  }
+
+  return [
+    String(s.ticket_id || s.ticketId || ('TICK-' + new Date().getTime())).trim(),
+    s.fecha || s.date || new Date().toISOString(),
+    estadoPago,
+    String(s.cliente_nombre || s.customerName || '').trim(),
+    String(s.metodo_pago || s.paymentMethod || 'Efectivo').trim(),
+    subtotal,
+    descuento,
+    total,
+    montoPagado,
+    itemsJson,
+    Boolean(s.stock_descontado),
+    costoEnvio,
+    String(s.cliente_contacto || s.customerContact || '').trim(),
+    String(s.estado_entrega || 'por_entregar').trim().toLowerCase(),
+    String(s.vendedor || s.seller || '').trim(),
+    String(s.notas || s.notes || '').trim()
+  ];
+}
+
+function overwriteDatabase(fullState) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let productsCount = 0;
+  let salesCount = 0;
+
+  // 1. Productos
+  const sheetProd = ss.getSheetByName(SHEET_NAME_PRODUCTS);
+  if (sheetProd && Array.isArray(fullState.products)) {
+    if (sheetProd.getLastRow() > 1) {
+      sheetProd.getRange(2, 1, sheetProd.getLastRow() - 1, sheetProd.getLastColumn()).clearContent();
+    }
+    const prodRows = fullState.products.map(p => [
+      p.id,
+      p.title,
+      p.category,
+      p.description || '',
+      p.details || '',
+      Array.isArray(p.imageUrls) ? p.imageUrls.join(' | ') : (p.imageUrls || ''),
+      Array.isArray(p.imageHint) ? p.imageHint.join(' | ') : (p.imageHint || ''),
+      p.available
+    ]);
+    if (prodRows.length > 0) {
+      sheetProd.getRange(2, 1, prodRows.length, prodRows[0].length).setValues(prodRows);
+    }
+    productsCount = prodRows.length;
+  }
+
+  // 2. Variantes
+  const sheetVar = ss.getSheetByName('Variantes');
+  if (sheetVar && Array.isArray(fullState.products)) {
+    if (sheetVar.getLastRow() > 1) {
+      sheetVar.getRange(2, 1, sheetVar.getLastRow() - 1, sheetVar.getLastColumn()).clearContent();
+    }
+    const varRows = [];
+    fullState.products.forEach(p => {
+      if (p.variants && Array.isArray(p.variants)) {
+        p.variants.forEach(v => {
+          varRows.push([
+            v.id,
+            p.id,
+            v.name,
+            v.sku || '',
+            v.price || 0,
+            v.stock || 0,
+            v.cost || 0,
+            v.itemCount || 1,
+            v.imageUrl || ''
+          ]);
+        });
+      }
+    });
+    if (varRows.length > 0) {
+      sheetVar.getRange(2, 1, varRows.length, varRows[0].length).setValues(varRows);
+    }
+  }
+
+  // 3. Movimientos
+  const sheetMov = ss.getSheetByName('Movimientos');
+  if (sheetMov && fullState.movements) {
+    if (sheetMov.getLastRow() > 1) {
+      sheetMov.getRange(2, 1, sheetMov.getLastRow() - 1, sheetMov.getLastColumn()).clearContent();
+    }
+    const movRows = [];
+    for (const variantId in fullState.movements) {
+      if (Array.isArray(fullState.movements[variantId])) {
+        fullState.movements[variantId].forEach(m => {
+          movRows.push([m.id, variantId, m.timestamp, m.type, m.change, m.newStock, m.notes || '', m.price || 0, m.cost || 0]);
+        });
+      }
+    }
+    if (movRows.length > 0) {
+      sheetMov.getRange(2, 1, movRows.length, movRows[0].length).setValues(movRows);
+    }
+  }
+
+  // 4. Logs
+  const sheetLog = ss.getSheetByName('Logs');
+  if (sheetLog && Array.isArray(fullState.auditLog)) {
+    if (sheetLog.getLastRow() > 1) {
+      sheetLog.getRange(2, 1, sheetLog.getLastRow() - 1, sheetLog.getLastColumn()).clearContent();
+    }
+    const logRows = fullState.auditLog.map(l => [l.id, l.timestamp, l.type, l.message]);
+    if (logRows.length > 0) {
+      sheetLog.getRange(2, 1, logRows.length, logRows[0].length).setValues(logRows);
+    }
+  }
+
+  // 5. Configuración
+  const sheetConf = ss.getSheetByName('Configuracion');
+  if (sheetConf && (fullState.categories || fullState.ignoredProductIds || fullState.preferences)) {
+    if (sheetConf.getLastRow() > 1) {
+      sheetConf.getRange(2, 1, sheetConf.getLastRow() - 1, sheetConf.getLastColumn()).clearContent();
+    }
+    const confRows = [];
+    if (fullState.categories) confRows.push(['categories', Array.isArray(fullState.categories) ? fullState.categories.join(', ') : fullState.categories]);
+    if (fullState.ignoredProductIds) confRows.push(['ignoredProductIds', Array.isArray(fullState.ignoredProductIds) ? fullState.ignoredProductIds.join(', ') : fullState.ignoredProductIds]);
+    if (fullState.preferences) {
+      for (const [key, value] of Object.entries(fullState.preferences)) {
+        confRows.push([`preferences.${key}`, value]);
+      }
+    }
+    if (confRows.length > 0) {
+      sheetConf.getRange(2, 1, confRows.length, 2).setValues(confRows);
+    }
+  }
+
+  // 6. Ventas (Solo sobrescribe si el payload incluye el arreglo 'sales' para evitar borrados accidentales)
+  if (Array.isArray(fullState.sales)) {
+    const sheetSales = getOrCreateSalesSheet(ss);
+    if (sheetSales.getLastRow() > 1) {
+      sheetSales.getRange(2, 1, sheetSales.getLastRow() - 1, sheetSales.getLastColumn()).clearContent();
+    }
+    const salesRows = fullState.sales.map(s => serializeSaleToRow(s));
+    if (salesRows.length > 0) {
+      sheetSales.getRange(2, 1, salesRows.length, SALES_HEADERS.length).setValues(salesRows);
+    }
+    salesCount = salesRows.length;
+  }
+
+  return { products: productsCount, sales: salesCount };
+}"
+SalesService.gs	"Gestión Granular de Tickets de Venta (Crear, Abonar, Actualizar Entrega, Anular)
+• handleUpsertSale(salePayload, authRole): Registra un nuevo ticket de venta o actualiza abonos y estados de un ticket existente sin sobrescribir toda la base de datos.
+• Maneja exclusión mutua con LockService (10s) para evitar condiciones de carrera en ventas simultáneas.
+• Registra automáticamente cada operación de venta en la hoja 'Logs' para auditoría."	"/**
+ * ============================================================================
+ * ARCHIVO 5: SalesService.gs - PANEL DE CONTROL DE VENTAS (TICKETS)
+ * Proyecto: Alquima Mizu
+ * ============================================================================
+ */
+
+/**
+ * Crea o actualiza un ticket en la pestaña 'Ventas' sin sobrescribir toda la base de datos.
+ * Soporta registro de abonos, cambio de estado_pago, estado_entrega y control de stock_descontado.
+ *
+ * @param {Object} salePayload Objeto con los campos del ticket.
+ * @param {string} authRole Rol autenticado ('admin' o 'vendedor').
+ */
+function handleUpsertSale(salePayload, authRole) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+
+    if (!salePayload || typeof salePayload !== 'object') {
+      throw new Error('Datos de venta inválidos.');
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getOrCreateSalesSheet(ss);
+
+    // Completar metadatos por defecto
+    const sale = Object.assign({}, salePayload);
+    if (!sale.ticket_id && !sale.ticketId) {
+      const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+      sale.ticket_id = 'TICK-' + randomSuffix;
+    } else {
+      sale.ticket_id = String(sale.ticket_id || sale.ticketId).trim();
+    }
+    if (!sale.vendedor && authRole) {
+      sale.vendedor = authRole;
+    }
+
+    const rowValues = serializeSaleToRow(sale);
+    const ticketId = rowValues[0];
+
+    // Buscar si el ticket_id ya existe en la columna A
+    const lastRow = sheet.getLastRow();
+    let existingRowIndex = -1;
+
+    if (lastRow > 1) {
+      const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (String(ids[i][0]).trim() === ticketId) {
+          existingRowIndex = i + 2;
+          break;
+        }
+      }
+    }
+
+    let operation = 'created';
+    if (existingRowIndex !== -1) {
+      // Actualizar ticket existente (ej. registrar abono, confirmar pago, marcar entregado o anular)
+      sheet.getRange(existingRowIndex, 1, 1, SALES_HEADERS.length).setValues([rowValues]);
+      operation = 'updated';
+    } else {
+      // Crear nuevo ticket
+      sheet.appendRow(rowValues);
+    }
+
+    // Registrar en Logs de auditoría
+    try {
+      const logsSheet = ss.getSheetByName('Logs');
+      if (logsSheet) {
+        const estadoPago = rowValues[2];
+        const total = rowValues[7];
+        const montoPagado = rowValues[8];
+        logsSheet.appendRow([
+          'LOG-' + new Date().getTime(),
+          new Date().getTime(),
+          operation === 'created' ? 'SALE_CREATE' : 'SALE_UPDATE',
+          `Ticket ${ticketId} (${estadoPago}) - Total: $${total} / Pagado: $${montoPagado} [${rowValues[14] || 'sistema'}]`
+        ]);
+      }
+    } catch (logErr) {
+      // No interrumpir flujo principal por fallo de log
+    }
+
+    return respondJson({
+      status: 'success',
+      operation: operation,
+      ticket_id: ticketId,
+      estado_pago: rowValues[2],
+      saldo_pendiente: Math.max(0, Number(rowValues[7]) - Number(rowValues[8]))
+    });
+
+  } catch (error) {
+    return respondJson({
+      status: 'error',
+      message: 'Error al guardar el ticket de venta: ' + error.toString()
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}"
+EmailServices.gs	"Envío de Comprobantes de Venta por Correo Electrónico
+• handleSendSaleReceipt(payload): Recibe los datos de la venta efectuada (cliente, artículos, totales, medio de pago, fecha) y genera un comprobante digital estilizado con plantilla HTML responsiva.
+• Envía el recibo por correo electrónico al cliente a través de MailApp.sendEmail y registra el evento en la hoja Logs."	"/**
+ * ============================================================================
+ * ARCHIVO 6: EmailServices.gs - SERVICIOS DE CORREO Y COMPROBANTES
+ * Proyecto: Alquima Mizu
+ * ============================================================================
+ */
+
+function handleSendSaleReceipt(payload) {
+  try {
+    const saleData = payload.saleData || payload.sale || payload.data || payload;
+    const recipientEmail = (
+      payload.recipientEmail ||
+      saleData.recipientEmail ||
+      saleData.customerEmail ||
+      saleData.email ||
+      saleData.clientEmail ||
+      'cfb.dig@gmail.com'
+    ).trim();
+
+    const ticketId = saleData.ticket_id || saleData.ticketId || saleData.saleId || ('TICK-' + new Date().getTime());
+    const customerName = saleData.cliente_nombre || saleData.customerName || 'Cliente';
+    const paymentMethod = saleData.metodo_pago || saleData.paymentMethod || 'Efectivo';
+    const estadoPago = String(saleData.estado_pago || 'pagado').toLowerCase();
+    const saleDate = saleData.fecha || saleData.date || Utilities.formatDate(new Date(), 'America/Bogota', 'dd/MM/yyyy HH:mm');
+    const notes = saleData.notas || saleData.notes || '';
+
+    // Soportar items como arreglo, como items_json serializado o como movimiento plano
+    let items = saleData.items;
+    if ((!items || !items.length) && saleData.items_json) {
+      try {
+        const parsed = typeof saleData.items_json === 'string' ? JSON.parse(saleData.items_json) : saleData.items_json;
+        if (Array.isArray(parsed)) items = parsed;
+      } catch (e) {
+        items = [];
+      }
+    }
+    if (!items || !items.length) {
+      items = [{
+        title: saleData.title || saleData.productTitle || 'Producto / Transacción',
+        variant: saleData.variant || saleData.variantName || 'Estándar',
+        quantity: Math.abs(saleData.quantity || saleData.change || 1),
+        subtotal: Math.abs(saleData.amount || saleData.total || 0)
+      }];
+    }
+
+    const descuento = Number(saleData.descuento !== undefined ? saleData.descuento : (saleData.discountAmount || 0)) || 0;
+    const costoEnvio = Number(saleData.costo_envio !== undefined ? saleData.costo_envio : (saleData.shippingCost || 0)) || 0;
+    const total = Number(saleData.total !== undefined ? saleData.total : (saleData.amount || 0)) || 0;
+    const montoPagado = Number(saleData.monto_pagado !== undefined ? saleData.monto_pagado : total) || 0;
+    const saldoPendiente = Math.max(0, total - montoPagado);
+
+    const formatCOP = function(val) {
+      return '$' + Number(val || 0).toLocaleString('es-CO');
+    };
+
+    let itemsHtml = '';
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const title = item.title || item.name || item.productTitle || 'Artículo';
+      const variant = item.variant || item.variantName || '';
+      const qty = Number(item.quantity || item.qty || 1);
+      const subtotalItem = Number(item.subtotal !== undefined ? item.subtotal : (qty * Number(item.price || 0) || total));
+
+      itemsHtml += '<tr>' +
+        '<td style=""padding: 8px; border-bottom: 1px solid #374151;"">' + title + (variant ? ' (' + variant + ')' : '') + '</td>' +
+        '<td style=""padding: 8px; border-bottom: 1px solid #374151; text-align: center;"">' + qty + '</td>' +
+        '<td style=""padding: 8px; border-bottom: 1px solid #374151; text-align: right;"">' + formatCOP(subtotalItem) + '</td>' +
+      '</tr>';
+    }
+
+    const htmlBody = '<div style=""font-family: sans-serif; background-color: #111827; color: #f3f4f6; padding: 24px; border-radius: 12px; max-width: 600px;"">' +
+      '<h2 style=""color: #c084fc; margin-bottom: 4px;"">Comprobante de Venta - Alquima 水</h2>' +
+      '<p style=""color: #9ca3af; font-size: 13px; margin-top: 0;"">Ticket #' + ticketId + ' • Fecha: ' + saleDate + '</p>' +
+      '<p style=""color: #d1d5db; font-size: 13px; margin: 8px 0;"">Cliente: <strong>' + customerName + '</strong> • Pago: <strong>' + paymentMethod + '</strong> • Estado: <strong style=""text-transform: uppercase;"">' + estadoPago + '</strong></p>' +
+      '<hr style=""border: none; border-top: 1px solid #374151; margin: 16px 0;"" />' +
+      '<table style=""width: 100%; border-collapse: collapse; font-size: 13px; color: #e5e7eb;"">' +
+        '<thead><tr style=""color: #9ca3af; text-align: left;""><th style=""padding: 8px;"">Producto</th><th style=""padding: 8px; text-align: center;"">Cant.</th><th style=""padding: 8px; text-align: right;"">Subtotal</th></tr></thead>' +
+        '<tbody>' + itemsHtml + '</tbody>' +
+      '</table>' +
+      '<hr style=""border: none; border-top: 1px solid #374151; margin: 16px 0;"" />' +
+      '<div style=""text-align: right; font-size: 14px;"">' +
+        (descuento > 0 ? '<p style=""color: #fbbf24; margin: 4px 0;"">Descuento: -' + formatCOP(descuento) + '</p>' : '') +
+        (costoEnvio > 0 ? '<p style=""color: #93c5fd; margin: 4px 0;"">Envío: ' + formatCOP(costoEnvio) + '</p>' : '') +
+        '<p style=""font-size: 18px; font-weight: bold; color: #34d399; margin: 6px 0;"">TOTAL: ' + formatCOP(total) + '</p>' +
+        (saldoPendiente > 0 ? '<p style=""color: #f87171; margin: 4px 0;"">Abonado: ' + formatCOP(montoPagado) + ' • Saldo pendiente: ' + formatCOP(saldoPendiente) + '</p>' : '') +
+      '</div>' +
+      (notes ? '<p style=""color: #9ca3af; font-size: 12px; margin-top: 14px; font-style: italic;"">Notas: ' + notes + '</p>' : '') +
+    '</div>';
+
+    MailApp.sendEmail({
+      to: recipientEmail,
+      subject: 'Comprobante de Venta #' + ticketId + ' - Alquima 水',
+      htmlBody: htmlBody,
+      name: 'Alquima 水'
+    });
+
+    try {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const logsSheet = ss.getSheetByName('Logs');
+      if (logsSheet) {
+        logsSheet.appendRow([
+          'LOG-' + new Date().getTime(),
+          new Date().getTime(),
+          'EMAIL_RECEIPT',
+          `Comprobante #${ticketId} enviado a ${recipientEmail}`
+        ]);
+      }
+    } catch (logErr) {}
+
+    return respondJson({
+      status: 'success',
+      message: 'Comprobante enviado exitosamente a ' + recipientEmail
+    });
+
+  } catch (error) {
+    return respondJson({
+      status: 'error',
+      message: 'Error al enviar comprobante: ' + error.toString()
+    });
+  }
+}"

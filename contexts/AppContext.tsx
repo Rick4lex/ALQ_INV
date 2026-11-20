@@ -1,8 +1,8 @@
 
 
-import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAppStore } from '../hooks/useAppStore';
-import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements, BatchSaleItem, SaleReceiptPayload, SaleRecord, SalePaymentMethod, SaleDeliveryStatus } from '../types';
+import { ModalState, Product, Variant, UserPreferences, Movement, ManualMovement, CsvUpdatePayload, AuditEntry, Movements, BatchSaleItem, SaleReceiptPayload, SaleRecord, SalePaymentMethod, SaleDeliveryStatus, UserRole } from '../types';
 import { db } from '../db';
 import Dexie from 'dexie';
 import { syncService } from '../services/syncService';
@@ -97,58 +97,139 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Control de concurrencia para evitar carreras entre PUSH (guardado) y PULL (lectura)
+  const isPushingRef = useRef(false);
+  const pushQueuedRef = useRef(false);
+  const pendingExplicitProductsRef = useRef<Product[] | undefined>(undefined);
+  const lastPushCompletedAtRef = useRef(0);
+  const isPullingRef = useRef(false);
+  const didInitialSyncRef = useRef(false);
+
   const isAnyModalOpen = useCallback(() => modal !== null || fullscreenData !== null, [modal, fullscreenData]);
 
-  const triggerRemoteSave = useCallback(async (explicitProducts?: Product[]) => {
+  const getSessionAuth = (): { token?: string; role?: UserRole } => {
     try {
-      // Siempre obtener la copia más fresca y real desde Dexie/IndexedDB si no se pasa explícitamente
-      const currentProducts = explicitProducts || await db.products.toArray();
-      const dbCategories = await db.allCategories.toArray();
-      const currentCategories = dbCategories.map(c => c.id);
-      const allMovements = await db.movements.toArray();
-      const groupedMovements = allMovements.reduce((acc: Movements, mov) => {
-        if (!acc[mov.variantId]) acc[mov.variantId] = [];
-        acc[mov.variantId].push(mov);
-        return acc;
-      }, {});
+      const stored = sessionStorage.getItem('alquima_mizu_session');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const role = parsed.role === 'admin' || parsed.role === 'vendedor' ? (parsed.role as UserRole) : undefined;
+        return { token: parsed.token, role };
+      }
+    } catch {}
+    return {};
+  };
 
-      const currentSales = await db.sales.orderBy('createdAt').reverse().toArray();
+  const triggerRemoteSave = useCallback(async (explicitProducts?: Product[]) => {
+    if (explicitProducts) {
+      pendingExplicitProductsRef.current = explicitProducts;
+    }
 
-      const payload = {
-        products: currentProducts,
-        categories: currentCategories,
-        movements: groupedMovements,
-        sales: currentSales,
-        timestamp: Date.now()
-      };
+    // Si ya hay un guardado remoto en curso, encolar uno nuevo al terminar para no perder el estado más reciente
+    if (isPushingRef.current) {
+      pushQueuedRef.current = true;
+      return;
+    }
 
-      let token: string | undefined;
-      try {
-        const stored = sessionStorage.getItem('alquima_mizu_session');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          token = parsed.token;
+    isPushingRef.current = true;
+    try {
+      do {
+        pushQueuedRef.current = false;
+        const explicitToUse = pendingExplicitProductsRef.current;
+        pendingExplicitProductsRef.current = undefined;
+
+        const [
+          currentProducts,
+          dbCategories,
+          dbIgnoredIds,
+          dbPrefs,
+          allMovements,
+          currentSales,
+          currentAuditLog
+        ] = await Promise.all([
+          explicitToUse ? Promise.resolve(explicitToUse) : db.products.toArray(),
+          db.allCategories.toArray(),
+          db.ignoredProductIds.toArray(),
+          db.preferences.get('user'),
+          db.movements.toArray(),
+          db.sales.orderBy('createdAt').reverse().toArray(),
+          db.auditLog.orderBy('timestamp').reverse().limit(250).toArray()
+        ]);
+
+        const currentCategories = dbCategories.map(c => c.id);
+        const currentIgnoredIds = dbIgnoredIds.map(i => i.id);
+        const groupedMovements = allMovements.reduce((acc: Movements, mov) => {
+          if (!acc[mov.variantId]) acc[mov.variantId] = [];
+          acc[mov.variantId].push(mov);
+          return acc;
+        }, {});
+
+        const cleanPrefs = dbPrefs ? { ...dbPrefs } : undefined;
+        if (cleanPrefs && 'key' in cleanPrefs) {
+          delete cleanPrefs.key;
         }
-      } catch {}
 
-      await syncService.pushRemoteData(payload, token);
+        const payload = {
+          products: currentProducts,
+          categories: currentCategories,
+          ignoredProductIds: currentIgnoredIds,
+          preferences: cleanPrefs,
+          movements: groupedMovements,
+          sales: currentSales,
+          auditLog: currentAuditLog,
+          timestamp: Date.now()
+        };
+
+        const { token } = getSessionAuth();
+        await syncService.pushRemoteData(payload, token);
+        lastPushCompletedAtRef.current = Date.now();
+      } while (pushQueuedRef.current);
     } catch (error) {
       console.warn("Fallo al guardar en Sheets en segundo plano:", error);
+    } finally {
+      isPushingRef.current = false;
+      lastPushCompletedAtRef.current = Date.now();
     }
   }, []);
 
+  // Persistencia híbrida para tickets: UPSERT_SALE atómico (funciona para Admin y Vendedor) + FULL_SYNC completo
+  const syncSaleToCloud = useCallback(async (sale: SaleRecord) => {
+    const { token } = getSessionAuth();
+    isPushingRef.current = true;
+    try {
+      await syncService.upsertSale(sale, token);
+      lastPushCompletedAtRef.current = Date.now();
+    } catch (err) {
+      console.warn("UPSERT_SALE falló, intentando respaldo con FULL_SYNC:", err);
+    } finally {
+      isPushingRef.current = false;
+    }
+    await triggerRemoteSave();
+  }, [triggerRemoteSave]);
+
   const handleManualSync = useCallback(async (isSilent = false) => {
-    if (isSyncing) return;
+    // Evitar solapamiento de lecturas o pisar un guardado local recién enviado
+    if (isPullingRef.current) return;
+    if (isSilent && (isPushingRef.current || Date.now() - lastPushCompletedAtRef.current < 3500)) {
+      return;
+    }
+    if (!isSilent && isPushingRef.current) {
+      return;
+    }
+
+    isPullingRef.current = true;
     if (!isSilent) setIsSyncing(true);
 
     try {
       const remoteData = await syncService.fetchRemoteData();
       if (!remoteData) return;
 
+      // Si mientras llegaba el GET el usuario realizó una escritura local, descartar esta respuesta vieja
+      if (isPushingRef.current) return;
+
       let incomingProducts: any[] | null = null;
       let incomingCategories: string[] | null = null;
       let incomingMovements: Movements | null = null;
-      let incomingSales: SaleRecord[] | null = null;
+      let incomingSales: any[] | null = null;
 
       if (Array.isArray(remoteData)) {
         incomingProducts = remoteData;
@@ -277,9 +358,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const loadedCategories = [...new Set(normalizedProducts.map(p => p.category).filter(Boolean))];
         let newCats: string[];
         if (incomingCategories && incomingCategories.length > 0) {
-          // Si Sheets envía la lista autoritativa de categorías, se respetan junto a las de productos reales existentes
           newCats = [...new Set([...incomingCategories, ...loadedCategories])];
-          // Limpiar de la base de datos local categorías huérfanas eliminadas en Sheet
           await db.allCategories.clear();
           await db.allCategories.bulkPut(newCats.map(c => ({ id: c })));
         } else {
@@ -299,35 +378,89 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setIgnoredProductIds(mergedIgnored);
         }
 
-        if (incomingMovements) {
-          const flatMovements = Object.values(incomingMovements).flat();
-          await db.movements.bulkPut(flatMovements as Movement[]);
-          setMovements(incomingMovements);
+        // CONCILIACIÓN ATÓMICA DE MOVIMIENTOS (elimina movimientos borrados por anulaciones en otros dispositivos)
+        if (incomingMovements && typeof incomingMovements === 'object') {
+          const normalizedGrouped: Movements = {};
+          const flatMovements: Movement[] = [];
+          Object.entries(incomingMovements).forEach(([variantId, list]) => {
+            if (!Array.isArray(list)) return;
+            const cleanList: Movement[] = list
+              .filter((m: any) => m && m.id)
+              .map((m: any) => ({
+                id: String(m.id),
+                variantId: String(m.variantId || variantId),
+                timestamp: Number(m.timestamp) || Date.now(),
+                type: (m.type || 'Ajuste') as Movement['type'],
+                change: Number(m.change) || 0,
+                newStock: Number(m.newStock) || 0,
+                notes: m.notes ? String(m.notes) : '',
+                price: m.price !== undefined && m.price !== '' ? Number(m.price) : undefined,
+                cost: m.cost !== undefined && m.cost !== '' ? Number(m.cost) : undefined,
+                ticketId: m.ticketId ? String(m.ticketId) : undefined,
+                originalPrice: m.originalPrice !== undefined && m.originalPrice !== '' ? Number(m.originalPrice) : undefined,
+                discount: m.discount !== undefined && m.discount !== '' ? Number(m.discount) : undefined,
+              }));
+            if (cleanList.length > 0) {
+              normalizedGrouped[variantId] = cleanList;
+              flatMovements.push(...cleanList);
+            }
+          });
+
+          await (db as Dexie).transaction('rw', db.movements, async () => {
+            await db.movements.clear();
+            if (flatMovements.length > 0) {
+              await db.movements.bulkPut(flatMovements);
+            }
+          });
+          setMovements(normalizedGrouped);
         }
 
-        if (incomingSales && incomingSales.length > 0) {
-          const validSales = incomingSales.filter((s: any) => s && s.ticketId);
-          if (validSales.length > 0) {
-            await db.sales.bulkPut(validSales);
-            const refreshedSales = await db.sales.orderBy('createdAt').reverse().toArray();
-            setSales(refreshedSales);
-          }
+        // CONCILIACIÓN ATÓMICA DE VENTAS (normaliza snake_case + camelCase y refleja pagos, entregas y anulaciones)
+        if (incomingSales !== null) {
+          const localSales = await db.sales.toArray();
+          const localSalesMap = new Map<string, SaleRecord>(
+            localSales.map(s => [s.ticketId, s])
+          );
+
+          const normalizedSales = incomingSales
+            .map((raw: any) => {
+              const id = String(raw?.ticketId ?? raw?.ticket_id ?? '').trim();
+              return syncService.normalizeRemoteSale(raw, id ? localSalesMap.get(id) : undefined);
+            })
+            .filter((s): s is SaleRecord => s !== null)
+            .sort((a, b) => b.createdAt - a.createdAt);
+
+          await (db as Dexie).transaction('rw', db.sales, async () => {
+            await db.sales.clear();
+            if (normalizedSales.length > 0) {
+              await db.sales.bulkPut(normalizedSales);
+            }
+          });
+          setSales(normalizedSales);
         }
 
-        await logAction(
-          'cloud_sync', 
-          `Sincronización remota exitosa: ${normalizedProducts.length} productos actualizados${deletedIds.length > 0 ? `, ${deletedIds.length} eliminados conciliados` : ''}.`
-        );
+        if (!isSilent) {
+          await logAction(
+            'cloud_sync',
+            `Sincronización remota exitosa: ${normalizedProducts.length} productos actualizados${deletedIds.length > 0 ? `, ${deletedIds.length} eliminados conciliados` : ''}.`
+          );
+        }
       }
     } catch (error) {
       console.error("Error sincronizando:", error);
-      if (!isSilent) {
-        alert("Error al sincronizar con Google Sheets. Revisa la consola o conexión.");
-      }
     } finally {
-      setIsSyncing(false);
+      isPullingRef.current = false;
+      if (!isSilent) setIsSyncing(false);
     }
-  }, [isSyncing, allCategories, ignoredProductIds, setProducts, setAllCategories, setMovements, setSales, setIgnoredProductIds, logAction]);
+  }, [ignoredProductIds, setProducts, setAllCategories, setMovements, setSales, setIgnoredProductIds, logAction]);
+
+  // Sincronización inicial automática al cargar la app en cualquier dispositivo
+  useEffect(() => {
+    if (!store.isMigrating && !didInitialSyncRef.current) {
+      didInitialSyncRef.current = true;
+      handleManualSync(true);
+    }
+  }, [store.isMigrating, handleManualSync]);
 
   const handleProductSave = useCallback(async (productToSave: Product) => {
     await storeHandleProductSave(productToSave);
@@ -664,11 +797,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     const updatedProductsArray = Array.from(productUpdatesMap.values());
+    const { role: sessionRole } = getSessionAuth();
     const finalSale: SaleRecord = {
       ...sale,
       createdAt: timestamp,
       paidAt: isPaid ? (sale.paidAt || timestamp) : sale.paidAt,
-      stockDeducted: shouldDeductStock
+      stockDeducted: shouldDeductStock,
+      soldBy: sale.soldBy || sessionRole
     };
 
     await (db as Dexie).transaction('rw', db.products, db.movements, db.sales, async () => {
@@ -708,9 +843,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       `${statusLabel} #${finalSale.ticketId} (${finalSale.customerName || 'Cliente'}) — Total: $${finalSale.total.toLocaleString('es-CO')}`
     );
 
-    triggerRemoteSave();
+    syncSaleToCloud(finalSale);
     return finalSale;
-  }, [products, setProducts, setMovements, setSales, logAction, triggerRemoteSave]);
+  }, [products, setProducts, setMovements, setSales, logAction, syncSaleToCloud]);
 
   const handleConfirmSalePayment = useCallback(async (
     ticketId: string,
@@ -734,8 +869,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     if (isNowFullyPaid && !wasAlreadyPaid && products) {
       if (existingSale.stockDeducted) {
-        // Stock ya apartado: reemplazar movimientos de 'Ajuste' por 'Venta' sin volver a descontar stock
-        const oldTicketMovs = await db.movements.where('ticketId').equals(ticketId).toArray();
+        // Stock ya apartado: localizar movimientos por ticketId o fallback en notes (#TICK-...)
+        const byTicketId = await db.movements.where('ticketId').equals(ticketId).toArray();
+        let oldTicketMovs = byTicketId;
+        if (oldTicketMovs.length === 0) {
+          const allMovs = await db.movements.toArray();
+          oldTicketMovs = allMovs.filter(m => (m.notes || '').includes(`#${ticketId}`));
+        }
         removedReservationIds = oldTicketMovs
           .filter(m => m.type === 'Ajuste')
           .map(m => ({ id: m.id, variantId: m.variantId }));
@@ -834,9 +974,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         : `Abono actualizado Ticket #${ticketId} (${paymentMethod}) — Abonado: $${nextAmountPaid.toLocaleString('es-CO')}`
     );
 
-    triggerRemoteSave();
+    syncSaleToCloud(updatedSale);
     return updatedSale;
-  }, [sales, products, setProducts, setMovements, setSales, logAction, triggerRemoteSave]);
+  }, [sales, products, setProducts, setMovements, setSales, logAction, syncSaleToCloud]);
 
   const handleUpdateSaleDelivery = useCallback(async (ticketId: string, deliveryStatus: SaleDeliveryStatus) => {
     const existingSale = sales.find(s => s.ticketId === ticketId) || await db.sales.get(ticketId);
@@ -846,8 +986,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await db.sales.put(updatedSale);
     setSales(prev => prev.map(s => s.ticketId === ticketId ? updatedSale : s));
     await logAction('sale_event', `Entrega Ticket #${ticketId} actualizada a "${deliveryStatus}".`);
-    triggerRemoteSave();
-  }, [sales, setSales, logAction, triggerRemoteSave]);
+    syncSaleToCloud(updatedSale);
+  }, [sales, setSales, logAction, syncSaleToCloud]);
 
   const handleCancelSale = useCallback(async (ticketId: string) => {
     const existingSale = sales.find(s => s.ticketId === ticketId) || await db.sales.get(ticketId);
@@ -857,7 +997,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     let removedMovements: Movement[] = [];
 
     if (existingSale.stockDeducted && products) {
-      removedMovements = await db.movements.where('ticketId').equals(ticketId).toArray();
+      // Buscar por índice ticketId y fallback por referencia #TICK-... en notes (para movimientos sincronizados sin columna ticketId)
+      const byTicketId = await db.movements.where('ticketId').equals(ticketId).toArray();
+      if (byTicketId.length > 0) {
+        removedMovements = byTicketId;
+      } else {
+        const allMovs = await db.movements.toArray();
+        removedMovements = allMovs.filter(m => (m.notes || '').includes(`#${ticketId}`));
+      }
 
       for (const item of existingSale.items) {
         const currentProduct = productUpdatesMap.get(item.productId) || products.find(p => p.id === item.productId);
@@ -877,6 +1024,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const updatedSale: SaleRecord = {
       ...existingSale,
       paymentStatus: 'anulado',
+      amountPaid: 0,
+      paidAt: undefined,
       stockDeducted: false
     };
     const updatedProductsArray = Array.from(productUpdatesMap.values());
@@ -914,8 +1063,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setSales(prev => prev.map(s => s.ticketId === ticketId ? updatedSale : s));
     await logAction('sale_event', `Ticket #${ticketId} anulado${existingSale.stockDeducted ? ' (stock restaurado)' : ''}.`);
-    triggerRemoteSave();
-  }, [sales, products, setProducts, setMovements, setSales, logAction, triggerRemoteSave]);
+    await syncSaleToCloud(updatedSale);
+  }, [sales, products, setProducts, setMovements, setSales, logAction, syncSaleToCloud]);
   
   const handleManualMovementSave = useCallback(async (movement: Omit<ManualMovement, 'id'>) => {
       const newMovement: ManualMovement = { ...movement, id: `manual-${Date.now()}` };
@@ -1371,10 +1520,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         onConfirm: async () => {
             await rawHandleMultipleMovementsDelete(variantId, movementIds);
             setModal(null);
+            triggerRemoteSave();
         },
         confirmText: `Eliminar ${movementIds.length} registro(s)`,
       });
-  }, [rawHandleMultipleMovementsDelete, setModal]);
+  }, [rawHandleMultipleMovementsDelete, setModal, triggerRemoteSave]);
 
   const value = useMemo(() => ({
     ...store, modal, setModal, fullscreenData, setFullscreenData, currentView, setCurrentView,
