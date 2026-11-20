@@ -51,6 +51,9 @@ export type ViewMode = 'grid' | 'list';
 
 export type PhotoFilterMode = 'all' | 'with_photo' | 'without_photo' | 'photos_first';
 
+export type DiscountRoundingMode = 'none' | 'client' | 'seller';
+export type DiscountRoundingStep = 500 | 1000;
+
 export interface UserPreferences {
   viewMode: ViewMode;
   searchTerm: string;
@@ -58,6 +61,8 @@ export interface UserPreferences {
   showAvailableOnly: boolean;
   showIgnoredOnly: boolean;
   photoFilter?: PhotoFilterMode;
+  discountRoundingMode?: DiscountRoundingMode;
+  discountRoundingStep?: DiscountRoundingStep;
   key?: 'user'; // Key for Dexie single-object table
 }
 

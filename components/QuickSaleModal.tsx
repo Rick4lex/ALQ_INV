@@ -10,7 +10,9 @@ import {
   SalePaymentStatus,
   SaleDeliveryStatus,
   SalePaymentMethod,
-  SaleTicketItem
+  SaleTicketItem,
+  DiscountRoundingMode,
+  DiscountRoundingStep
 } from '../types';
 import { formatCurrency } from '../utils';
 import { getPrimarySeriesName } from '../catalogPagination';
@@ -105,6 +107,8 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
   const {
     products,
     allCategories,
+    preferences,
+    updatePreference,
     sales,
     handleCreateSale,
     handleConfirmSalePayment,
@@ -112,6 +116,10 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
     handleCancelSale
   } = useAppContext();
   const { user } = useAuth();
+
+  // Preferencia persistida de redondeo de descuento (Opción A)
+  const roundingMode: DiscountRoundingMode = preferences.discountRoundingMode ?? 'client';
+  const roundingStep: DiscountRoundingStep = preferences.discountRoundingStep ?? 500;
 
   // Navegación del Panel de Control de Ventas
   const [activeTab, setActiveTab] = useState<PanelTab>('new');
@@ -240,7 +248,7 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
     [cart]
   );
 
-  const totalDiscountAmount = useMemo(() => {
+  const rawDiscountAmount = useMemo(() => {
     if (isFixedDiscount) {
       const fixedVal = Number(fixedDiscountAmount) || 0;
       return Math.min(subtotal, Math.max(0, fixedVal));
@@ -251,10 +259,43 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
     return 0;
   }, [isFixedDiscount, fixedDiscountAmount, activePercent, subtotal]);
 
+  const exactNetProducts = useMemo(
+    () => Math.max(0, subtotal - rawDiscountAmount),
+    [subtotal, rawDiscountAmount]
+  );
+
+  // Redondeo automático según preferencia (a favor del cliente ↓ o vendedor ↑)
+  const { roundedNetProducts, roundingDelta, totalDiscountAmount } = useMemo(() => {
+    if (isFixedDiscount || activePercent <= 0 || subtotal <= 0 || roundingMode === 'none') {
+      return {
+        roundedNetProducts: exactNetProducts,
+        roundingDelta: 0,
+        totalDiscountAmount: rawDiscountAmount
+      };
+    }
+
+    let rounded = exactNetProducts;
+    if (roundingMode === 'client') {
+      rounded = Math.floor(exactNetProducts / roundingStep) * roundingStep;
+    } else if (roundingMode === 'seller') {
+      rounded = Math.min(subtotal, Math.ceil(exactNetProducts / roundingStep) * roundingStep);
+    }
+
+    const delta = rounded - exactNetProducts;
+    const adjustedDiscount = Math.max(0, subtotal - rounded);
+
+    return {
+      roundedNetProducts: rounded,
+      roundingDelta: delta,
+      totalDiscountAmount: adjustedDiscount
+    };
+  }, [isFixedDiscount, activePercent, subtotal, roundingMode, roundingStep, exactNetProducts, rawDiscountAmount]);
+
   const discountLabel = useMemo(() => {
     if (totalDiscountAmount <= 0) return undefined;
-    return isFixedDiscount ? 'Monto fijo' : `-${activePercent}%`;
-  }, [totalDiscountAmount, isFixedDiscount, activePercent]);
+    if (isFixedDiscount) return 'Monto fijo';
+    return roundingDelta !== 0 ? `-${activePercent}% aj.` : `-${activePercent}%`;
+  }, [totalDiscountAmount, isFixedDiscount, activePercent, roundingDelta]);
 
   const numericShipping = Math.max(0, Number(shippingCost) || 0);
 
@@ -550,9 +591,17 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
   const buildDraftSaleRecord = (): SaleRecord => {
     const effectiveDiscountFactor = subtotal > 0 ? totalDiscountAmount / subtotal : 0;
     const now = Date.now();
+    let remainingDiscount = totalDiscountAmount;
 
-    const items: SaleTicketItem[] = cart.map((item) => {
-      const discountPerUnit = Math.round(item.originalPrice * effectiveDiscountFactor);
+    const items: SaleTicketItem[] = cart.map((item, idx) => {
+      const isLast = idx === cart.length - 1;
+      const lineGross = item.quantity * item.originalPrice;
+      const lineDiscount = isLast
+        ? Math.min(lineGross, Math.max(0, remainingDiscount))
+        : Math.min(lineGross, Math.max(0, Math.round(lineGross * effectiveDiscountFactor)));
+      remainingDiscount = Math.max(0, remainingDiscount - lineDiscount);
+
+      const discountPerUnit = item.quantity > 0 ? lineDiscount / item.quantity : 0;
       const unitPriceEffective = Math.max(0, item.originalPrice - discountPerUnit);
       return {
         productId: item.productId,
@@ -565,7 +614,7 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
         originalPrice: item.originalPrice,
         unitPrice: unitPriceEffective,
         discount: discountPerUnit,
-        subtotal: item.quantity * unitPriceEffective
+        subtotal: Math.max(0, lineGross - lineDiscount)
       };
     });
 
@@ -1415,6 +1464,96 @@ const QuickSaleModal: React.FC<QuickSaleModalProps> = ({ isOpen, onClose }) => {
                             }
                             className="w-32 bg-gray-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-purple-500/40 focus:outline-none focus:border-purple-400 font-mono"
                           />
+                        </div>
+                      )}
+
+                      {/* Control automático de redondeo (guardado como preferencia) */}
+                      {!isFixedDiscount && activePercent > 0 && (
+                        <div className="pt-2.5 mt-1 border-t border-gray-800 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold text-gray-400">
+                              Redondeo automático:
+                            </span>
+
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {/* Dirección del redondeo */}
+                              <div className="inline-flex bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                                {(
+                                  [
+                                    { id: 'none', label: 'Exacto' },
+                                    { id: 'client', label: 'Cliente ↓' },
+                                    { id: 'seller', label: 'Vendedor ↑' }
+                                  ] as { id: DiscountRoundingMode; label: string }[]
+                                ).map((opt) => (
+                                  <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => updatePreference('discountRoundingMode', opt.id)}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                                      roundingMode === opt.id
+                                        ? opt.id === 'client'
+                                          ? 'bg-emerald-600 text-white'
+                                          : opt.id === 'seller'
+                                            ? 'bg-amber-600 text-white'
+                                            : 'bg-gray-700 text-white'
+                                        : 'text-gray-400 hover:text-white'
+                                    }`}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Múltiplo ($500 / $1.000) */}
+                              {roundingMode !== 'none' && (
+                                <div className="inline-flex bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                                  {([500, 1000] as DiscountRoundingStep[]).map((step) => (
+                                    <button
+                                      key={step}
+                                      type="button"
+                                      onClick={() => updatePreference('discountRoundingStep', step)}
+                                      className={`px-2 py-1 rounded-md text-[11px] font-mono font-bold transition-colors ${
+                                        roundingStep === step
+                                          ? 'bg-purple-600 text-white'
+                                          : 'text-gray-400 hover:text-white'
+                                      }`}
+                                    >
+                                      ${step.toLocaleString('es-CO')}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {roundingMode !== 'none' && (
+                            <p className="text-[11px] text-gray-400 font-mono tabular-nums">
+                              {roundingDelta !== 0 ? (
+                                <>
+                                  {formatCurrency(exactNetProducts)} →{' '}
+                                  <strong className="text-white">
+                                    {formatCurrency(roundedNetProducts)}
+                                  </strong>{' '}
+                                  <span
+                                    className={
+                                      roundingDelta < 0 ? 'text-emerald-400' : 'text-amber-300'
+                                    }
+                                  >
+                                    ({roundingDelta < 0 ? '' : '+'}
+                                    {formatCurrency(roundingDelta)}{' '}
+                                    {roundingDelta < 0
+                                      ? 'a favor del cliente'
+                                      : 'a favor del vendedor'}
+                                    )
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-gray-500">
+                                  El total neto ({formatCurrency(exactNetProducts)}) ya es cifra cerrada.
+                                </span>
+                              )}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
